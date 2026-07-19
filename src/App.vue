@@ -306,7 +306,7 @@ onUnmounted(() => {
       <div id="mult">{{ game.mult.value }}</div>
     </div>
 
-    <div id="energy">
+    <div id="energy" v-if="!game.invincibleUsed.value">
       <div
         v-for="i in 20"
         :key="i"

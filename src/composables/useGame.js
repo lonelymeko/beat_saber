@@ -25,6 +25,7 @@ export function useGame() {
   const state = ref('menu')
   const auto = ref(false)
   const invincible = ref(false)
+  const invincibleUsed = ref(false)
   const songIdx = ref(0)
   const meta = ref(null)
   const score = ref(0)
@@ -266,12 +267,15 @@ export function useGame() {
     energy.value = G.en
     if (G.en <= 0 && state.value === 'playing') {
       if (invincible.value) {
-        G.score = Math.round(G.score * 0.5)
-        score.value = Math.round(G.score)
-        G.jud++ // force score reactive update
-        G.en = 0.5
-        energy.value = 0.5
-        log('invincible-trigger', 'score halved')
+        if (!_invincibleUsed) {
+          _invincibleUsed = true
+          invincibleUsed.value = true
+          G.score = Math.round(G.score * 0.5)
+          score.value = Math.round(G.score)
+          log('invincible-trigger', 'score halved permanently')
+        }
+        G.en = 0.01
+        energy.value = 0.01
       } else {
         failSong()
       }
@@ -495,6 +499,8 @@ export function useGame() {
     _vrPollLogged = false
     _vrPollNoUpdate = false
     _noteSpawnLogged = false
+    _invincibleUsed = false
+    invincibleUsed.value = false
     G.cumMax = [0]
     for (let i = 1; i <= G.totalNotes; i++) {
       const m = i <= 2 ? 1 : i <= 6 ? 2 : i <= 14 ? 4 : 8
@@ -1053,6 +1059,7 @@ export function useGame() {
   let _vrOtherBtnLogged = false
   let _vrPauseBtnPressed = false
   let _noteSpawnLogged = false
+  let _invincibleUsed = false
   let _vrPostGameCooldown = 0
   let _vrPostGameLastTrigger = { left: false, right: false }
 
@@ -1463,7 +1470,7 @@ export function useGame() {
   }
 
   return {
-    state, auto, invincible, downloadProgress, songListVersion, songIdx, score, combo, acc, mult, energy, progress, songLabel,
+    state, auto, invincible, invincibleUsed, downloadProgress, songListVersion, songIdx, score, combo, acc, mult, energy, progress, songLabel,
     rank, rScore, rAcc, rCombo, rHits, resultsTitle, failSub,
     countdownNum, countdownVisible, xrSupported, xrActive,
     SONGS,

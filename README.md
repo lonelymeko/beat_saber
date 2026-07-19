@@ -1,5 +1,86 @@
-# Vue 3 + Vite
+# Beat Saber WebXR
 
-This template should help get you started developing with Vue 3 in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
+网页版节奏光剑，支持桌面鼠标 + VR 手柄双模式，接入 BeatSaver 社区 12 万+ 谱面。
 
-Learn more about IDE Support for Vue in the [Vue Docs Scaling up Guide](https://vuejs.org/guide/scaling-up/tooling.html#ide-support).
+## 体验地址
+
+**https://beatsaber.xixiu.top**
+
+## 桌面模式
+
+### 操作
+| 操作 | 方式 |
+|------|------|
+| 挥砍光剑 | 鼠标移动控制双手 |
+| 躲避墙壁 | 键盘 **A / D** |
+| 暂停 | 键盘 **ESC** |
+
+### 选歌 / 下载
+- 点击歌单卡片直接开始内置歌曲
+- 点击 **BEATSAVER · 社区谱面搜索** 打开面板：
+  - **搜索框** — 输入歌手/歌名，Enter 搜索，从结果列表点击下载
+  - **🎤 歌手** — 一键搜热门动画/术力口歌手的热门谱面
+  - **🎵 热门曲目** — 一键搜具体歌曲
+- 下载后谱面自动存入浏览器本地存储，刷新不丢失
+- 下载成功的卡片右上角 **×** 可删除
+
+### 模式开关
+- **DEMO MODE** — 光剑自动演示，只听歌看景
+- **NO FAIL** — 血量清空不失败，扣 50% 总分（仅一次），之后血条隐藏
+
+## VR 模式
+
+需要 HTTPS 或 localhost 访问。
+
+### 进入 VR
+点击菜单底部 **ENTER VR** 按钮进入沉浸模式。
+
+### VR 选歌
+- 左右手光剑 + 激光射线
+- 右手激光指到卡片会自动放大，**按扳机键** 选择
+- 搜歌面板操作同桌面模式
+
+### VR 游戏中
+| 操作 | 按钮 |
+|------|------|
+| 暂停 | 左手 **菜单键** |
+| 暂停-继续 | 左手扳机 |
+| 暂停-重开 | 右手扳机 |
+| 暂停-返回菜单 | 暂停后再按左手菜单键 |
+| 结束/失败-重试 | 左手扳机 |
+| 结束/失败-回菜单 | 右手扳机 |
+| 退出 VR | 右手柄 Oculus 系统按钮 |
+
+### 结算界面
+歌曲结束或失败后显示结算面板（评分、分数、准确率、连击），左右手扳机选择重试或返回菜单。
+
+## 内置歌曲
+
+| 歌曲 | BPM | 难度 | 风格 |
+|------|-----|------|------|
+| 霓虹脉冲 NEON PULSE | 128 | 困难 | EDM |
+| 墨影山河 INK SHADOWS | 84 | 简单 | 国风古筝 |
+| 星海远航 STARBOUND | 110 | 普通 | Synthwave |
+
+## 技术栈
+
+- **Three.js** — 3D 渲染 + WebXR
+- **Vue 3** — UI 层
+- **Web Audio API** — 音频合成与回放
+- **IndexedDB** — 谱面本地持久化
+- **BeatSaver API** — 社区谱面搜索与下载
+
+## 本地开发
+
+```bash
+npm install
+npm run dev        # 启动开发服务器 (localhost:5173, HTTPS)
+```
+
+## 部署
+
+```bash
+./deploy.sh        # 构建 + 上传至服务器 + Nginx 重载
+```
+
+需要 `sshpass`：`brew install sshpass`

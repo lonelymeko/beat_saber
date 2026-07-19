@@ -43,19 +43,17 @@ export async function downloadBeatMap(mapData, onProgress) {
   if (!hash && !id) throw new Error('No hash or id to download')
 
   const downloadUrls = [
-    `https://r2cdn.beatsaver.com/${hash}.zip`,
-    `https://cdn.beatsaver.com/${hash}.zip`,
-    `https://eu.cdn.beatsaver.com/${hash}.zip`,
-    `https://na.cdn.beatsaver.com/${hash}.zip`,
-    `https://as.cdn.beatsaver.com/${hash}.zip`,
-    // CORS proxies as last resort
-    `https://corsproxy.io/?${encodeURIComponent(`https://cdn.beatsaver.com/${hash}.zip`)}`,
+    `https://r2cdn.beatsaver.com/${hash}.zip?t=${Date.now()}`,
+    `https://cdn.beatsaver.com/${hash}.zip?t=${Date.now()}`,
+    `https://eu.cdn.beatsaver.com/${hash}.zip?t=${Date.now()}`,
+    `https://na.cdn.beatsaver.com/${hash}.zip?t=${Date.now()}`,
+    `https://as.cdn.beatsaver.com/${hash}.zip?t=${Date.now()}`,
   ]
 
   let response = null
   for (const url of downloadUrls) {
     try {
-      response = await fetch(url)
+      response = await fetch(url, { cache: 'no-store' })
       if (response.ok) break
     } catch (e) { /* try next */ }
   }
@@ -63,7 +61,7 @@ export async function downloadBeatMap(mapData, onProgress) {
   if (!response || !response.ok) {
     try {
       onProgress?.('fetching', 50)
-      response = await fetch(`${API}/maps/id/${id}/download`)
+      response = await fetch(`${API}/maps/id/${id}/download`, { cache: 'no-store' })
       if (!response.ok) throw new Error(`Download failed: ${response.status}`)
     } catch (e) {
       throw new Error('Download failed. Try a different song.')
@@ -180,17 +178,23 @@ async function parseZipManually(data, mapData, coverBlob) {
   if (!audioBuffer) throw new Error('找不到音频文件')
 
   const difficulties = {}
+  const allDatFiles = []
   for (const name of Object.keys(files)) {
     const lower = name.toLowerCase()
+    if (!lower.endsWith('.dat')) continue
+    allDatFiles.push(name)
     const base = lower.split(/[\\/]/).pop().replace(/\.dat$/, '')
     if (!base || base === 'info') continue
-    // Strip characteristic suffixes: Standard, Lawless, OneSaber, etc.
     let key = base.replace(/(standard|lawless|onesaber|360degree|90degree|noarrows|lightshow)$/, '')
     if (!key) key = base
-    // Normalize known difficulty names
-    const diffMap = { expertplus: 'expertplus', 'expert+': 'expertplus', ex: 'expert', e: 'easy', n: 'normal', h: 'hard' }
+    const diffMap = { 'expert+': 'expertplus' }
     key = diffMap[key] || key
-    try { difficulties[key] = JSON.parse(decoder.decode(files[name])) } catch (e) {}
+    console.log('[ZIP-DIFF]', name, '→', key)
+    try {
+      const parsed = JSON.parse(decoder.decode(files[name]))
+      difficulties[key] = parsed
+      console.log('[ZIP-NOTES]', key, 'notes:', parsed._notes?.length || 0, 'walls:', parsed._obstacles?.length || 0)
+    } catch (e) { console.log('[ZIP-FAIL]', name, e.message) }
   }
 
   const diffOrder = ['expertplus', 'expert', 'hard', 'normal', 'easy']
@@ -202,32 +206,59 @@ async function parseZipManually(data, mapData, coverBlob) {
     const keys = Object.keys(difficulties)
     if (keys.length > 0) { chosenDiff = difficulties[keys[0]]; chosenName = keys[0] }
   }
+  console.log('[ZIP-CHOSEN]', chosenName, 'notes:', chosenDiff?._notes?.length, 'keys:', Object.keys(difficulties))
 
   const notes = [], walls = []
   if (chosenDiff) {
-    if (chosenDiff._notes) {
+    // Support both BeatSaver v2 (_notes/_obstacles) and v3 (colorNotes/bombNotes/obstacles)
+    if (chosenDiff.colorNotes || chosenDiff.bombNotes) {
+      // v3 format
+      if (chosenDiff.colorNotes) {
+        for (const n of chosenDiff.colorNotes) {
+          notes.push({ t: n.b, x: n.x, y: n.y, type: n.c, dir: n.d })
+        }
+      }
+      if (chosenDiff.bombNotes) {
+        for (const n of chosenDiff.bombNotes) {
+          notes.push({ t: n.b, x: n.x, y: n.y, type: 3, dir: 8 })
+        }
+      }
+      if (chosenDiff.obstacles) {
+        const LX = [-0.9, -0.3, 0.3, 0.9]
+        for (const o of chosenDiff.obstacles) {
+          const li = Math.max(0, Math.min(3, o.x || 0))
+          const ww = Math.max(1, Math.min(4, o.w || 1))
+          const endIdx = Math.min(3, li + ww - 1)
+          const startX = LX[li], endX = LX[endIdx]
+          walls.push({
+            t: o.b, dur: o.d,
+            side: (startX + endX) / 2 / 0.58,
+            width: ww, type: o.h === 1 ? 1 : 0,
+            wallScale: (endX - startX + 0.6) / 1.15,
+            crouch: o.h === 1,
+          })
+        }
+      }
+    } else if (chosenDiff._notes) {
+      // v2 format
       for (const n of chosenDiff._notes) {
         notes.push({ t: n._time, x: n._lineIndex, y: n._lineLayer, type: n._type, dir: n._cutDirection })
       }
-    }
-    if (chosenDiff._obstacles) {
-      // Game lane positions
-      const LX = [-0.9, -0.3, 0.3, 0.9]
-      for (const o of chosenDiff._obstacles) {
-        const li = Math.max(0, Math.min(3, o._lineIndex || 0))
-        const ww = Math.max(1, Math.min(4, o._width || 1))
-        const endIdx = Math.min(3, li + ww - 1)
-        const startX = LX[li]
-        const endX = LX[endIdx]
-        walls.push({
-          t: o._time,
-          dur: o._duration,
-          side: (startX + endX) / 2 / 0.58, // normalized to game's side scale
-          width: ww,
-          type: o._type,
-          wallScale: (endX - startX + 0.6) / 1.15, // scale relative to default width
-          crouch: o._type === 1,
-        })
+      if (chosenDiff._obstacles) {
+        const LX = [-0.9, -0.3, 0.3, 0.9]
+        for (const o of chosenDiff._obstacles) {
+          const li = Math.max(0, Math.min(3, o._lineIndex || 0))
+          const ww = Math.max(1, Math.min(4, o._width || 1))
+          const endIdx = Math.min(3, li + ww - 1)
+          const startX = LX[li], endX = LX[endIdx]
+          walls.push({
+            t: o._time, dur: o._duration,
+            side: (startX + endX) / 2 / 0.58,
+            width: ww, type: o._type,
+            wallScale: (endX - startX + 0.6) / 1.15,
+            crouch: o._type === 1,
+          })
+        }
       }
     }
   }

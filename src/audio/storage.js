@@ -57,33 +57,40 @@ export async function loadAllMaps() {
     const req = store.getAll()
     req.onsuccess = (e) => {
       const records = e.target.result || []
-      const songs = records.map(r => ({
-        id: r.id,
-        name: r.name,
-        en: r.en,
-        style: r.style,
-        desc: r.desc,
-        bpm: r.bpm,
-        diff: r.diff,
-        env: r.env,
-        speed: r.speed,
-        colorL: r.colorL,
-        colorR: r.colorR,
-        cardBg: r.coverBuffer
-          ? `url(${URL.createObjectURL(new Blob([r.coverBuffer]))}) center/cover no-repeat`
-          : (r.cardBg || 'linear-gradient(160deg,#2b0a3d,#0e1445 55%,#032c3f)'),
-        coverBlob: r.coverBuffer ? new Blob([r.coverBuffer]) : null,
-        internal: {
-          events: [],
-          notes: r.notes || [],
-          walls: r.walls || [],
-          duration: r.duration || 180,
+      const songs = []
+      for (const r of records) {
+        if (!r.notes || r.notes.length === 0) {
+          deleteMap(r.id).catch(() => {})
+          continue
+        }
+        songs.push({
+          id: r.id,
+          name: r.name,
+          en: r.en,
+          style: r.style,
+          desc: r.desc,
           bpm: r.bpm,
-          spb: 60 / r.bpm,
-          buffer: r.audioBuffer ? new Uint8Array(r.audioBuffer) : null,
-        },
-        build() { return this.internal },
-      }))
+          diff: r.diff,
+          env: r.env,
+          speed: r.speed,
+          colorL: r.colorL,
+          colorR: r.colorR,
+          cardBg: r.coverBuffer
+            ? `url(${URL.createObjectURL(new Blob([r.coverBuffer]))}) center/cover no-repeat`
+            : (r.cardBg || 'linear-gradient(160deg,#2b0a3d,#0e1445 55%,#032c3f)'),
+          coverBlob: r.coverBuffer ? new Blob([r.coverBuffer]) : null,
+          internal: {
+            events: [],
+            notes: r.notes || [],
+            walls: r.walls || [],
+            duration: r.duration || 180,
+            bpm: r.bpm,
+            spb: 60 / r.bpm,
+            buffer: r.audioBuffer ? new Uint8Array(r.audioBuffer) : null,
+          },
+          build() { return this.internal },
+        })
+      }
       resolve(songs)
     }
     req.onerror = (e) => reject(e.target.error)
