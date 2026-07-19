@@ -280,37 +280,59 @@ export class Synth {
 
   sfxSlash(pan = 0) {
     const t = this.now()
-    const n = this._noise(t, 0.1)
+    // Punch layer - deep thump
+    const s1 = this.ctx.createOscillator()
+    const g1 = this._g(t)
+    s1.type = 'sine'; s1.frequency.setValueAtTime(280, t)
+    s1.frequency.exponentialRampToValueAtTime(55, t + 0.08)
+    g1.gain.linearRampToValueAtTime(0.8, t + 0.002)
+    g1.gain.exponentialRampToValueAtTime(0.001, t + 0.09)
+    s1.connect(g1); g1.connect(this.sfx); s1.start(t); s1.stop(t + 0.11)
+
+    // Noise burst - the "slash" texture
+    const n = this._noise(t, 0.12)
     const f = this.ctx.createBiquadFilter()
-    const g = this._g(t)
-    const p = this.ctx.createStereoPanner ? this.ctx.createStereoPanner() : null
-    f.type = 'bandpass'; f.Q.value = 1
-    f.frequency.setValueAtTime(2400, t)
-    f.frequency.exponentialRampToValueAtTime(8200, t + 0.07)
-    g.gain.linearRampToValueAtTime(0.5, t + 0.004)
-    g.gain.exponentialRampToValueAtTime(0.001, t + 0.1)
+    const g2 = this._g(t)
+    f.type = 'bandpass'; f.Q.value = 0.9
+    f.frequency.setValueAtTime(3200, t)
+    f.frequency.exponentialRampToValueAtTime(11000, t + 0.06)
+    g2.gain.linearRampToValueAtTime(0.55, t + 0.003)
+    g2.gain.exponentialRampToValueAtTime(0.001, t + 0.1)
     n.connect(f)
-    if (p) { p.pan.value = pan; f.connect(p); p.connect(g) } else f.connect(g)
-    g.connect(this.sfx)
-    const o = this.ctx.createOscillator()
-    const og = this._g(t)
-    o.type = 'sine'; o.frequency.value = 1300 + Math.random() * 300
-    og.gain.linearRampToValueAtTime(0.16, t + 0.003)
-    og.gain.exponentialRampToValueAtTime(0.001, t + 0.06)
-    o.connect(og); og.connect(this.sfx)
-    o.start(t); o.stop(t + 0.08)
+    if (this.ctx.createStereoPanner) {
+      const p = this.ctx.createStereoPanner()
+      p.pan.value = pan; f.connect(p); p.connect(g2)
+    } else f.connect(g2)
+    g2.connect(this.sfx)
+
+    // Sparkle - high frequency shimmer
+    const s2 = this.ctx.createOscillator()
+    const g3 = this._g(t)
+    s2.type = 'sine'; s2.frequency.setValueAtTime(1800 + Math.random() * 400, t)
+    s2.frequency.exponentialRampToValueAtTime(4400, t + 0.04)
+    g3.gain.linearRampToValueAtTime(0.2, t + 0.003)
+    g3.gain.exponentialRampToValueAtTime(0.001, t + 0.07)
+    s2.connect(g3); g3.connect(this.sfx); s2.start(t); s2.stop(t + 0.09)
   }
 
   sfxBad() {
     const t = this.now()
+    // Harsh buzz
     const o = this.ctx.createOscillator()
     const g = this._g(t)
-    o.type = 'square'; o.frequency.setValueAtTime(130, t)
-    o.frequency.exponentialRampToValueAtTime(70, t + 0.16)
-    g.gain.linearRampToValueAtTime(0.35, t + 0.004)
+    o.type = 'sawtooth'; o.frequency.setValueAtTime(180, t)
+    o.frequency.exponentialRampToValueAtTime(60, t + 0.18)
+    g.gain.linearRampToValueAtTime(0.3, t + 0.004)
     g.gain.exponentialRampToValueAtTime(0.001, t + 0.2)
-    o.connect(g); g.connect(this.sfx)
-    o.start(t); o.stop(t + 0.22)
+    o.connect(g); g.connect(this.sfx); o.start(t); o.stop(t + 0.22)
+    // Noise crack
+    const n = this._noise(t, 0.12)
+    const f = this.ctx.createBiquadFilter()
+    const ng = this._g(t)
+    f.type = 'highpass'; f.frequency.value = 2000
+    ng.gain.linearRampToValueAtTime(0.25, t + 0.002)
+    ng.gain.exponentialRampToValueAtTime(0.001, t + 0.14)
+    n.connect(f); f.connect(ng); ng.connect(this.sfx)
   }
 
   sfxMiss() {

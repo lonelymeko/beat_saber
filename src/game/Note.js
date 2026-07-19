@@ -60,32 +60,47 @@ export function createHalves(note, angle, sp, good, noteCol, textures, hotTex) {
   const halves = []
   const nx = -Math.sin(angle)
   const ny = Math.cos(angle)
+  const baseColor = new THREE.Color(noteCol)
+  const glowColor = good ? baseColor.clone().lerp(new THREE.Color(0xffffff), 0.6) : baseColor.clone().lerp(new THREE.Color(0xffffff), 0.15)
+
+  // 4 debris pieces flying in cut direction
   for (let s = -1; s <= 1; s += 2) {
-    const grp = new THREE.Group()
-    const hotBase = good ? 1 : 0.35
-    const hotMat = new THREE.MeshBasicMaterial({
-      map: textures.hotTex, transparent: true, opacity: hotBase,
-      color: new THREE.Color(noteCol).lerp(new THREE.Color(0xffffff), good ? 0.6 : 0.15),
-      blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
-    })
-    const hot = new THREE.Mesh(textures.hotGeo, hotMat)
-    hot.rotation.x = s * Math.PI / 2
-    hot.position.y = -s * 0.122
-    grp.add(hot)
-    grp.position.copy(note.g.position)
-    grp.rotation.z = angle
-    grp.position.x += nx * 0.13 * s
-    grp.position.y += ny * 0.13 * s
-    halves.push({
-      m: grp,
-      hotMat,
-      vx: nx * s * (1.6 + sp * 0.25) + (Math.random() - 0.5),
-      vy: ny * s * (1.6 + sp * 0.25) + 1.2,
-      vz: 3.5 + Math.random() * 2,
-      rx: (Math.random() - 0.5) * 9,
-      rz: (Math.random() - 0.5) * 9,
-      life: 0.7,
-    })
+    for (let p = -1; p <= 1; p += 2) {
+      const grp = new THREE.Group()
+      // Debris shard
+      const mat = new THREE.MeshStandardMaterial({
+        color: noteCol, metalness: 0.3, roughness: 0.6,
+        emissive: noteCol, emissiveIntensity: 0.4 + (good ? 0.6 : 0.1),
+      })
+      const shard = new THREE.Mesh(
+        new THREE.BoxGeometry(0.12, 0.12, 0.12 + Math.random() * 0.15),
+        mat,
+      )
+      shard.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI)
+      grp.add(shard)
+
+      // Glow overlay
+      const hotMat = new THREE.MeshBasicMaterial({
+        map: textures.hotTex, transparent: true, opacity: good ? 0.9 : 0.3,
+        color: glowColor, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+      })
+      const hot = new THREE.Mesh(textures.hotGeo, hotMat)
+      hot.position.z = 0.26
+      grp.add(hot)
+
+      grp.position.copy(note.g.position)
+      const spStr = sp * (0.5 + Math.random() * 0.8)
+      halves.push({
+        m: grp, hotMat,
+        vx: nx * s * (0.8 + spStr) + p * (Math.random() - 0.5) * 2,
+        vy: ny * s * (0.8 + spStr) + 1.0 + Math.random() * 2,
+        vz: 2 + Math.random() * 4 + sp * 0.3,
+        rx: (Math.random() - 0.5) * 12,
+        ry: (Math.random() - 0.5) * 12,
+        rz: (Math.random() - 0.5) * 12,
+        life: 0.55 + Math.random() * 0.25,
+      })
+    }
   }
   return halves
 }
@@ -99,11 +114,11 @@ export function createBurst(pos, color, textures, n = 14, size = 0.12, spd = 5) 
     posArr[i * 3 + 2] = pos.z
     const a = Math.random() * Math.PI * 2
     const b = (Math.random() - 0.5) * Math.PI
-    const v = spd * (0.4 + Math.random() * 0.6)
+    const v = spd * (0.5 + Math.random() * 0.8)
     vels.push(new THREE.Vector3(
       Math.cos(a) * Math.cos(b) * v,
-      Math.sin(b) * v + 1,
-      Math.sin(a) * Math.cos(b) * v * 0.5 + 2,
+      Math.sin(b) * v + 1.5,
+      Math.sin(a) * Math.cos(b) * v * 0.7 + 3,
     ))
   }
   const geo = new THREE.BufferGeometry()
