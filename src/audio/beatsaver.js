@@ -182,10 +182,15 @@ async function parseZipManually(data, mapData, coverBlob) {
   const difficulties = {}
   for (const name of Object.keys(files)) {
     const lower = name.toLowerCase()
-    const match = lower.match(/[\\/]?([a-z]+)\.dat$/)
-    if (match && match[1] !== 'info') {
-      try { difficulties[match[1]] = JSON.parse(decoder.decode(files[name])) } catch (e) {}
-    }
+    const base = lower.split(/[\\/]/).pop().replace(/\.dat$/, '')
+    if (!base || base === 'info') continue
+    // Strip characteristic suffixes: Standard, Lawless, OneSaber, etc.
+    let key = base.replace(/(standard|lawless|onesaber|360degree|90degree|noarrows|lightshow)$/, '')
+    if (!key) key = base
+    // Normalize known difficulty names
+    const diffMap = { expertplus: 'expertplus', 'expert+': 'expertplus', ex: 'expert', e: 'easy', n: 'normal', h: 'hard' }
+    key = diffMap[key] || key
+    try { difficulties[key] = JSON.parse(decoder.decode(files[name])) } catch (e) {}
   }
 
   const diffOrder = ['expertplus', 'expert', 'hard', 'normal', 'easy']
