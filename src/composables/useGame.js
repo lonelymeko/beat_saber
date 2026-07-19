@@ -1052,6 +1052,7 @@ export function useGame() {
   let _vrAxisTriggerFound = false
   let _vrOtherBtnLogged = false
   let _vrPauseBtnPressed = false
+  let _noteSpawnLogged = false
   let _vrPostGameCooldown = 0
   let _vrPostGameLastTrigger = { left: false, right: false }
 
