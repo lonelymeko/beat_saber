@@ -17,7 +17,7 @@ export async function searchBeatSaver(query, page = 0) {
     duration: doc.metadata.duration,
     hash: doc.versions[0]?.hash,
     diffs: doc.versions[0]?.diffs || [],
-    coverUrl: doc.versions[0]?.coverURL || `https://cdn.beatsaver.com/${doc.id}.jpg`,
+    coverUrl: doc.versions[0]?.coverURL || `https://cdn.beatsaver.com/${doc.versions[0]?.hash}.jpg` || `https://cdn.beatsaver.com/${doc.id}.jpg`,
     downloadCount: doc.stats?.downloads || 0,
     upvotes: doc.stats?.upvotes || 0,
   }))

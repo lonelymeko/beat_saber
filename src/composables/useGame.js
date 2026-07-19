@@ -494,6 +494,7 @@ export function useGame() {
     _vrPlayingDebugged = false
     _vrPollLogged = false
     _vrPollNoUpdate = false
+    _noteSpawnLogged = false
     G.cumMax = [0]
     for (let i = 1; i <= G.totalNotes; i++) {
       const m = i <= 2 ? 1 : i <= 6 ? 2 : i <= 14 ? 4 : 8
@@ -520,6 +521,9 @@ export function useGame() {
       synth.ctx.decodeAudioData(ab, (decoded) => {
         player.loadBuffer(decoded)
         player.start(G.startAt)
+        log('audio-decoded', { duration: decoded.duration?.toFixed(1), sampleRate: decoded.sampleRate })
+      }, (err) => {
+        log('audio-decode-error', err?.message || err)
       })
     } else {
       if (rawBuf) player.loadBuffer(rawBuf)
@@ -789,6 +793,11 @@ export function useGame() {
       const ns = G.song.notes
       const mats = { matL, matR, bombMat, textures }
       while (G.noteIdx < ns.length && ns[G.noteIdx].t - t < ahead) spawnNote(ns[G.noteIdx++], mats)
+      // Log first few notes
+      if (G.noteIdx > 0 && !_noteSpawnLogged) {
+        _noteSpawnLogged = true
+        log('note-spawn', { total: ns.length, spawned: G.noteIdx, firstT: ns[0]?.t?.toFixed(2), ahead: ahead.toFixed(1), t: t.toFixed(2) })
+      }
       const ws = G.song.walls
       while (G.wallIdx < ws.length && ws[G.wallIdx].t - t < ahead) spawnWall(ws[G.wallIdx++], meta.value.speed)
 
