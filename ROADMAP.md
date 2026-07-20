@@ -1,0 +1,136 @@
+# Beat Saber WebXR — 开发路线图
+
+## 已完成
+
+### 基础玩法
+- [x] Three.js 3D 渲染（桌面 + VR 双模式）
+- [x] 方块生成与打击检测（切向判定、速度计分、bad cut / miss）
+- [x] 墙壁 / 炸弹 / 蹲伏墙壁
+- [x] 粒子爆发 + 碎片飞散 + 打击音效（三层合成 + 立体声 pan）
+- [x] 计分系统：连击、倍率、血量、准确率
+- [x] 无敌模式（No Fail：首轮扣 50% 总分后血条隐藏）
+
+### UI
+- [x] 桌面 DOM HUD（得分 / 连击 / 倍率 / 血量 / 进度 / 歌名）
+- [x] VR 3D HUD（Canvas 纹理 Sprite + Plane 进度条，2m 镜头跟随）
+- [x] 倒计时、暂停面板、结算面板、失败面板
+- [x] VR 选歌菜单（多行卡片 + 激光射线 + 扳机点选）
+- [x] VR 手柄暂停 / 重开 / 退出（左手菜单键暂停，左右扳机选择）
+
+### 谱面系统
+- [x] 内置 3 首合成歌曲（霓虹脉冲 / 墨影山河 / 星海远航）
+- [x] 谱面生成器（方向交替流 + 墙壁 + 炸弹 + 难度分层）
+- [x] BeatSaver API 搜索 + 下载（社区 12 万+ 曲库）
+- [x] ZIP 解析（手动解析 Central Directory + async inflate）
+- [x] BeatSaver v2 格式支持（`_notes`, `_obstacles`）
+- [x] BeatSaver v3 格式支持（`colorNotes`, `bombNotes`, `obstacles`）
+- [x] 音频解码（Ogg Vorbis → Web Audio API decodeAudioData）
+- [x] 拍数→秒数转换（beats × 60/BPM）
+- [x] 封面图下载与显示（Blob → IndexedDB 持久化）
+- [x] IndexedDB 本地缓存（下载后自动保存，刷新恢复）
+- [x] 删除已下载谱面
+- [x] BeatSaver 谱面 ID 直输下载
+
+### 场景
+- [x] 3 个内置场景（Neon / Ink / Space）
+- [x] Canvas 纹理粒子系统
+- [x] 网格地面 + fog + 场景管理（BaseEnv 类）
+
+---
+
+## 待完成
+
+### 1. 彩灯事件 ← 最优先
+BeatSaver v3 难度文件包含灯光事件，可以实现与官方一致的舞台灯光效果。
+
+**数据字段**：
+- `basicBeatmapEvents`: 基础灯光开/关/闪烁
+- `colorBoostBeatmapEvents`: 颜色增强
+- `lightColorEventBoxGroups`: 左右柱颜色过渡（Beat Saber 两侧灯柱）
+- `lightRotationEventBoxGroups`: 灯柱旋转
+- `lightTranslationEventBoxGroups`: 灯光平移
+
+**实现思路**：
+- 创建左右两侧发光柱体（`CylinderGeometry` + `MeshBasicMaterial`）
+- 根据 `lightColorEventBoxGroups` 中的 keyframes 做颜色渐变
+- 用 `basicBeatmapEvents` 控制环境灯（DirectionalLight / PointLight）开关和颜色
+- 灯柱旋转用 `lightRotationEventBoxGroups` 控制 Z 轴旋转
+
+**参考**：
+- 正版 Beat Saber 默认场景：两侧灯柱 + 地面霓虹网格 + 中心舞台
+- supermedium/beatsaver-viewer：`leftStageLasers` / `rightStageLasers` A-Frame 组件
+
+### 2. 滑条 & 连打
+BeatSaver v3 新增滑条和连打滑块。
+
+**数据字段**：
+- `sliders`: `{ b, c, x, y, d, mu, tb, tx, ty, tc, tmu }` — 弧形滑条
+- `burstSliders`: `{ b, c, x, y, d, tb, tx, ty, sc, s }` — 连打滑块
+
+**实现思路**：
+- 滑条：用 `TubeGeometry` 绘制弧线，按段判定手柄是否在轨迹上
+- 连打滑块：多个短方块连续排列，每 hit 一个计一次分
+
+### 3. 自定义场景材质 ← 参照正版
+有些谱面自带场景模型和材质，需要 GLTF 加载。
+
+**Beat Saber 官方场景要素**：
+- 地面网格（发光线条）
+- 两侧灯柱（发激光、变色）
+- 背景光晕/粒子
+- 中心舞台（发光环）
+- 环境雾效
+
+**参考仓库**：
+| 仓库 | 说明 |
+|------|------|
+| [supermedium/beatsaver-viewer](https://github.com/supermedium/beatsaver-viewer) | A-Frame + Three.js，浏览器直接渲染 BS 谱面 |
+| [Beat Saber 官方 Modding Wiki](https://bsmg.wiki/) | 社区 Mod 文档 |
+
+**实现思路**：
+- `BasicBeatmapEvents` → 环境灯光控制（DirectionalLight 颜色/强度）
+- `LightColorEventBoxGroups` → 灯柱 Shader 材质颜色渐变（`ShaderMaterial` + uniforms）
+- 自定义环境 → 解析 `Environment.dat` 文件 → `GLTFLoader` 加载模型
+- Chroma 扩展 → `_customData._color` 按音符/墙壁独立着色
+
+### 4. Noodle Extensions / Chroma 支持
+社区谱面大量使用这两个 Mod。
+
+**Chroma**：允许每个音符/墙壁独立上色，甚至渐变
+**Noodle Extensions**：音符动画（缩放、位移、旋转、轨道曲线），墙壁穿透等
+
+**实现思路**：
+- Chroma 颜色从 `_customData._color` 读取，替换默认色
+- Noodle 动画从 `_customData._animation` 读取，用 Three.js tween 实现
+
+### 5. UI 增强
+- [ ] VR 暂停/结算面板做成**可视化卡片按钮**（激光指向 + 扳机点选，替代当前文字提示）
+- [ ] 下载进度条更精细（解析 hash → 下载 → 解压 → 解码音频各阶段百分比）
+- [ ] VR 内建键盘输入（搜索框输入歌名）
+
+### 6. 多源聚合
+| 源 | 状态 |
+|------|------|
+| [BeatSaver](https://beatsaver.com) | ✅ 已接入 |
+| [BeatLeader](https://beatleader.com) | ⬜ 待接入（需研究 API） |
+| [bs.wgzeyu.com](https://bs.wgzeyu.com) | ❌ 无搜索 API |
+
+### 7. 性能优化
+- [ ] 大量方块时启用 instanced rendering（`InstancedMesh`）
+- [ ] 墙体合并渲染（`mergeGeometries`）
+- [ ] 粒子系统用 `BufferGeometry` + `computeInAdvance` 减少 GC
+
+---
+
+## 技术参考清单
+
+| 名称 | 类型 | 地址 |
+|------|------|------|
+| Beat Saber 正版场景 | 参考 | Steam/Quest 游戏本体 |
+| beatsaver-viewer | 开源 Web 播放器 | https://github.com/supermedium/beatsaver-viewer |
+| BSMG Modding Wiki | 社区文档 | https://bsmg.wiki/ |
+| BeatSaver API | 谱面 API | https://api.beatsaver.com/docs/ |
+| Beat Saber 谱面格式 v3 | 格式文档 | https://bsmg.wiki/mapping/map-format.html |
+| BeatLeader API | 社区排行 | https://api.beatleader.com |
+| Three.js | 3D 引擎 | https://threejs.org/ |
+| WebXR Spec | VR 标准 | https://immersiveweb.dev/ |

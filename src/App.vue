@@ -21,10 +21,17 @@ const bsSearchLabel = ref('')
 
 async function doSearch(q) {
   if (bsLoading.value) return
+  const term = (q || bsQuery.value).trim()
+  if (!term) return
+  // Direct map ID: download immediately
+  if (/^[a-f0-9]{4,6}$/i.test(term)) {
+    doDownload({ id: term, name: 'BeatSaver #' + term, songName: 'Map ' + term, songAuthor: '', levelAuthor: '', bpm: 150, duration: 180 })
+    return
+  }
   bsLoading.value = true; bsError.value = ''; bsResults.value = []
-  bsSearchLabel.value = q || bsQuery.value.trim()
+  bsSearchLabel.value = term
   try {
-    bsResults.value = await game.searchSong(bsSearchLabel.value)
+    bsResults.value = await game.searchSong(term)
     if (!bsResults.value.length) bsError.value = 'No results'
   } catch (e) { bsError.value = 'Search failed: ' + e.message }
   bsLoading.value = false
@@ -232,7 +239,7 @@ onUnmounted(() => {
     <div class="bs-panel">
       <div class="bs-header">BEATSAVER SEARCH</div>
       <div class="bs-input-row">
-          <input v-model="bsQuery" class="bs-input" placeholder="搜索歌手 / 歌曲名..." @keyup.enter="doSearch(bsQuery)" />
+          <input v-model="bsQuery" class="bs-input" placeholder="搜索 或 输入谱面ID（如 4f454）直接下载..." @keyup.enter="doSearch(bsQuery)" />
           <button class="bs-btn" @click="doSearch(bsQuery)" :disabled="bsLoading || !bsQuery.trim()">
           {{ bsLoading ? '...' : 'SEARCH' }}
         </button>
