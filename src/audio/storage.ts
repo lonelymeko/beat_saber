@@ -132,7 +132,7 @@ function recordToSong(r: any): Song {
           build() {
             const it: any = this.internal
             const d = it.diffs?.[it.currentDiff] || (it.diffs && Object.values(it.diffs)[0])
-            return d ? { ...it, notes: d.notes, walls: d.walls, lights: d.lights, arcs: d.arcs } : it
+            return d ? { ...it, notes: d.notes, walls: d.walls, lights: d.lights, arcs: d.arcs, noodle: d.noodle } : it
           },
         }) as Song
 }

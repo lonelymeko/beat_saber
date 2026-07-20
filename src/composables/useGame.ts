@@ -243,18 +243,166 @@ export function useGame() {
     return m
   }
 
+  // ========== Noodle Extensions runtime (tracks + keyframe animations) ==========
+  const EASE: Record<string, (k: number) => number> = {
+    easeLinear: k => k,
+    easeInQuad: k => k * k,
+    easeOutQuad: k => k * (2 - k),
+    easeInOutQuad: k => (k < 0.5 ? 2 * k * k : -1 + (4 - 2 * k) * k),
+    easeInCubic: k => k ** 3,
+    easeOutCubic: k => 1 - (1 - k) ** 3,
+    easeInOutCubic: k => (k < 0.5 ? 4 * k ** 3 : 1 - (-2 * k + 2) ** 3 / 2),
+    easeInQuart: k => k ** 4,
+    easeOutQuart: k => 1 - (1 - k) ** 4,
+    easeInOutQuart: k => (k < 0.5 ? 8 * k ** 4 : 1 - (-2 * k + 2) ** 4 / 2),
+    easeInSine: k => 1 - Math.cos(k * Math.PI / 2),
+    easeOutSine: k => Math.sin(k * Math.PI / 2),
+    easeInOutSine: k => -(Math.cos(Math.PI * k) - 1) / 2,
+    easeInExpo: k => (k === 0 ? 0 : 2 ** (10 * k - 10)),
+    easeOutExpo: k => (k === 1 ? 1 : 1 - 2 ** (-10 * k)),
+    easeInOutExpo: k => (k === 0 ? 0 : k === 1 ? 1 : k < 0.5 ? 2 ** (20 * k - 10) / 2 : (2 - 2 ** (-20 * k + 10)) / 2),
+    easeInBack: k => 2.70158 * k ** 3 - 1.70158 * k * k,
+    easeOutBack: k => 1 + 2.70158 * (k - 1) ** 3 + 1.70158 * (k - 1) ** 2,
+  }
+  const _ease = (k: number, name?: string) => (name && EASE[name] ? EASE[name](Math.max(0, Math.min(1, k))) : Math.max(0, Math.min(1, k)))
+
+  // Sample keyframes [[...vals, time, (easing?)], ...] at k∈[0,1] → number[] of values
+  function samplePts(pts: any[], k: number): number[] | null {
+    if (!pts || !pts.length) return null
+    const parse = (row: any[]) => {
+      const nums = row.filter((x: any) => typeof x === 'number')
+      const eas = row.find((x: any) => typeof x === 'string' && x.startsWith('ease'))
+      return { vals: nums.slice(0, -1), time: nums[nums.length - 1], eas }
+    }
+    const first = parse(pts[0])
+    if (pts.length === 1 || k <= first.time) return first.vals
+    let prev = first
+    for (let i = 1; i < pts.length; i++) {
+      const cur = parse(pts[i])
+      if (k <= cur.time) {
+        const span = cur.time - prev.time
+        let kk = span > 0 ? (k - prev.time) / span : 1
+        kk = _ease(kk, cur.eas)
+        return prev.vals.map((v: number, j: number) => v + ((cur.vals[j] ?? v) - v) * kk)
+      }
+      prev = cur
+    }
+    return prev.vals
+  }
+
+  function getNoodleTrack(name: string) {
+    let tr = G.noodleTracks[name]
+    if (!tr) tr = G.noodleTracks[name] = { anims: [], path: {}, val: {} }
+    return tr
+  }
+
+  function processNoodle(t: number) {
+    const evs = G.song.noodle
+    if (!evs) return
+    while (G.noodleIdx < evs.length && evs[G.noodleIdx].t <= t) {
+      const ev = evs[G.noodleIdx++]
+      for (const name of ev.tracks) {
+        const tr = getNoodleTrack(name)
+        if (ev.path) Object.assign(tr.path, ev.props)
+        else for (const p in ev.props) tr.anims.push({ prop: p, pts: ev.props[p], start: ev.t, dur: ev.dur, easing: ev.easing })
+      }
+    }
+    for (const name in G.noodleTracks) {
+      const tr = G.noodleTracks[name]
+      for (let i = tr.anims.length - 1; i >= 0; i--) {
+        const a = tr.anims[i]
+        const k = a.dur > 0 ? Math.min(1, (t - a.start) / a.dur) : 1
+        tr.val[a.prop] = samplePts(a.pts, _ease(k, a.easing))
+        if (k >= 1) tr.anims.splice(i, 1)
+      }
+    }
+  }
+
+  // Read a property across the object's tracks (persisted values + path anims) and its own animation
+  function readNoodleProp(d: any, prop: string, lifeP: number): number[] | null {
+    let v: number[] | null = null
+    const mul = prop === 'scale' || prop === 'dissolve'
+    const merge = (nv: number[] | null) => {
+      if (!nv) return
+      if (!v) { v = nv.slice() }
+      else if (mul) { v = v.map((x, i) => x * (nv[i] ?? 1)) }
+      else { v = v.map((x, i) => x + (nv[i] ?? 0)) }
+    }
+    if (d.track) {
+      for (const name of d.track) {
+        const tr = G.noodleTracks[name]
+        if (!tr) continue
+        if (tr.val[prop] != null) merge(tr.val[prop])
+        if (tr.path[prop]) merge(samplePts(tr.path[prop], lifeP))
+      }
+    }
+    if (d.anim?.[prop]) merge(samplePts(d.anim[prop], lifeP))
+    return v
+  }
+
+  // Apply noodle transform to an object. Returns dissolve 0..1.
+  const DEG = Math.PI / 180
+  function applyNoodle(obj: THREE.Object3D, d: any, lifeP: number, baseX: number, baseY: number, baseZ: number): number {
+    let px = baseX, py = baseY, pz = baseZ
+    const dp = readNoodleProp(d, 'definitePosition', lifeP)
+    if (dp) { px = 0.3 + dp[0] * 0.6; py = 0.85 + (dp[1] || 0) * 0.5; pz = G.hitZ - (dp[2] || 0) * 0.6 }
+    const off = readNoodleProp(d, 'position', lifeP)
+    if (off) { px += off[0] * 0.6; py += (off[1] || 0) * 0.5; pz -= (off[2] || 0) * 0.6 }
+    const rot = readNoodleProp(d, 'rotation', lifeP)
+    if (rot && rot[1]) {
+      // world rotation about the player (Y axis)
+      const a = rot[1] * DEG
+      const c = Math.cos(a), s = Math.sin(a)
+      const nx = px * c + pz * s
+      pz = -px * s + pz * c
+      px = nx
+    }
+    obj.position.set(px, py, pz)
+    const lrot = readNoodleProp(d, 'localRotation', lifeP)
+    if (lrot || rot) {
+      obj.rotation.set(
+        ((lrot?.[0] || 0) + (rot?.[0] || 0)) * DEG,
+        ((lrot?.[1] || 0) + (rot?.[1] || 0)) * DEG,
+        ((lrot?.[2] || 0) + (rot?.[2] || 0)) * DEG,
+      )
+    }
+    const sc = readNoodleProp(d, 'scale', lifeP)
+    if (sc) obj.scale.set(sc[0] ?? 1, sc[1] ?? sc[0] ?? 1, sc[2] ?? sc[0] ?? 1)
+    const dis = readNoodleProp(d, 'dissolve', lifeP)
+    return dis ? Math.max(0, Math.min(1, dis[0])) : 1
+  }
+
   // ========== Spawn ==========
   function spawnNote(d, mats) {
     const g = createNoteMesh(d, mats, textures)
     g.position.z = G.hitZ - SPAWN_DIST
     scene.add(g)
-    G.notes.push({ d, g, cut: false, missed: false })
+    const rec: any = { d, g, cut: false, missed: false }
+    if (d.track || d.anim) {
+      rec.noodle = true
+      rec.baseX = g.position.x
+      rec.baseY = g.position.y
+      // per-note material clone so dissolve can fade this note alone
+      const body: any = g.children[0]
+      if (body?.material) {
+        body.material = body.material.clone()
+        body.material.transparent = true
+        rec.ownMat = body.material
+      }
+    }
+    G.notes.push(rec)
   }
 
   function spawnWall(w, speed) {
     const { m, len } = createWallMesh(w, speed, G.hitZ)
     scene.add(m)
-    G.walls.push({ w, m, len })
+    const rec: any = { w, m, len }
+    if (w.track || w.anim) {
+      rec.noodle = true
+      rec.baseX = m.position.x
+      rec.baseY = m.position.y
+    }
+    G.walls.push(rec)
   }
 
   function spawnArc(a) {
@@ -466,6 +614,7 @@ export function useGame() {
     for (const saber of [saberL, saberR]) {
       for (const note of G.notes) {
         if (note.cut || note.missed) continue
+        if (note.d.ghost) continue // Noodle non-interactable visual note
         const z = note.g.position.z
         let d
         if (vr) {
@@ -594,13 +743,15 @@ export function useGame() {
     G.wallIdx = 0
     G.lightIdx = 0
     G.arcIdx = 0
+    G.noodleIdx = 0
+    G.noodleTracks = {}
     G.lastBeat = -1
     G.lastCount = 99
     G.lean = 0
     G.leanTarget = 0
     G.shake = 0
-    G.totalNotes = G.song.notes.filter(n => n.type !== 3 && !n.link).length
-    G.lastNoteT = G.song.notes.reduce((m, n) => (n.type !== 3 && !n.link && n.t > m ? n.t : m), -1)
+    G.totalNotes = G.song.notes.filter(n => n.type !== 3 && !n.link && !n.ghost).length
+    G.lastNoteT = G.song.notes.reduce((m, n) => (n.type !== 3 && !n.link && !n.ghost && n.t > m ? n.t : m), -1)
     _vrPlayingDebugged = false
     _vrPollLogged = false
     _vrPollNoUpdate = false
@@ -635,6 +786,8 @@ export function useGame() {
         // Already decoded for preview — start instantly, no re-decode
         player.loadBuffer(cached)
         player.start(G.startAt)
+        // The level ends when the audio ends (observation maps outlive their last note)
+        G.song.duration = Math.max(0.5, cached.duration - 0.05)
       } else {
         const playTok = G.playToken
         synth.ctx.decodeAudioData(ab, (decoded) => {
@@ -642,6 +795,7 @@ export function useGame() {
           if (playTok !== G.playToken || state.value === 'menu' || state.value === 'vrmenu') return // superseded by a newer start/quit
           player.loadBuffer(decoded)
           player.start(G.startAt)
+          G.song.duration = Math.max(0.5, decoded.duration - 0.05)
           log('audio-decoded', { duration: decoded.duration?.toFixed(1), sampleRate: decoded.sampleRate })
         }, (err) => {
           log('audio-decode-error', err?.message || err)
@@ -698,6 +852,7 @@ export function useGame() {
 
   function finishSong() {
     state.value = 'results'
+    if (player) player.stop()
     const accMax = G.cumMax[G.totalNotes] || 1
     const accVal = G.score / accMax
     const rk = accVal >= 0.95 ? 'SS' : accVal >= 0.9 ? 'S' : accVal >= 0.8 ? 'A' : accVal >= 0.65 ? 'B' : accVal >= 0.5 ? 'C' : 'D'
@@ -1086,11 +1241,19 @@ export function useGame() {
       const as = G.song.arcs
       if (as) while (G.arcIdx < as.length && as[G.arcIdx].t - t < ahead) spawnArc(as[G.arcIdx++])
 
+      // Noodle track animations advance before objects read them
+      processNoodle(t)
+
       // Move notes
       for (let i = G.notes.length - 1; i >= 0; i--) {
         const n = G.notes[i]
         const z = G.hitZ + (t - n.d.t) * meta.value.speed
         n.g.position.z = z
+        if (n.noodle) {
+          const lifeP = Math.max(0, Math.min(1, (z - (G.hitZ - SPAWN_DIST)) / (2 * SPAWN_DIST)))
+          const dis = applyNoodle(n.g, n.d, lifeP, n.baseX, n.baseY, z)
+          if (n.ownMat) n.ownMat.opacity = dis
+        } else {
         const born = (z - (G.hitZ - SPAWN_DIST)) / 14
         if (born < 1) {
           const e = Math.max(0, Math.min(1, born))
@@ -1101,9 +1264,13 @@ export function useGame() {
           n.g.scale.set(1, 1, 1)
           n.g.rotation.z = 0
         }
+        }
         if (n.d.type === 3) n.g.rotation.y += dt * 2
         const missZ = XR.active ? 0.35 : MISS_Z
-        if (!n.cut && !n.missed && n.d.type !== 3 && z > missZ) { n.d.link ? missLink(n) : missNote(n) }
+        if (!n.cut && !n.missed && n.d.type !== 3 && z > missZ) {
+          if (n.d.ghost) n.missed = true // visual-only: no penalty
+          else n.d.link ? missLink(n) : missNote(n)
+        }
         if (!n.cut && n.d.type === 3 && z > 1.5) { n.cut = true; scene.remove(n.g) }
         if ((n.cut || n.missed) && z > 2.5) { scene.remove(n.g); G.notes.splice(i, 1) }
         else if (n.cut && n.d.type !== 3 && !n.missed) { G.notes.splice(i, 1) }
@@ -1127,6 +1294,13 @@ export function useGame() {
         const o = G.walls[i]
         const frontZ = G.hitZ + (t - o.w.t) * meta.value.speed
         o.m.position.z = frontZ - o.len / 2
+        if (o.noodle) {
+          const lifeP = Math.max(0, Math.min(1, (frontZ - (G.hitZ - SPAWN_DIST)) / (2 * SPAWN_DIST)))
+          const dis = applyNoodle(o.m, o.w, lifeP, o.baseX, o.baseY, frontZ - o.len / 2)
+          const mats = o.m.userData.ownMats || []
+          if (mats[0]) mats[0].opacity = 0.22 * dis
+          if (mats[1]) mats[1].opacity = 0.9 * dis
+        }
         if (frontZ - o.len > 3) {
           scene.remove(o.m)
           o.m.traverse(c => { if (c.geometry) c.geometry.dispose() })

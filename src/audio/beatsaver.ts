@@ -13,7 +13,7 @@ export const THEME_ENV: Record<string, string> = {
 
 export async function searchBeatSaver(query: string, page = 0): Promise<BeatSaverMapInfo[]> {
   const q = encodeURIComponent(query)
-  return fetchMapList(`${API}/search/text/${page}?q=${q}&sortOrder=Latest`)
+  return fetchMapList(`${API}/search/text/${page}?q=${q}&sortOrder=Relevance`)
 }
 
 /** Browse without a query: top rated or latest, optionally filtered by a genre tag. */
@@ -332,14 +332,68 @@ async function parseZipManually(data: Uint8Array, mapData: any, coverBlob?: Blob
     build() {
       const it: any = (this as any).internal
       const d = it.diffs?.[it.currentDiff] || (it.diffs && Object.values(it.diffs)[0])
-      return d ? { ...it, notes: d.notes, walls: d.walls, lights: d.lights, arcs: d.arcs } : it
+      return d ? { ...it, notes: d.notes, walls: d.walls, lights: d.lights, arcs: d.arcs, noodle: d.noodle } : it
     },
   }
+}
+
+// ===== Noodle Extensions animation parsing (v2 modcharts) =====
+// Normalized event: { t, path, tracks[], dur, easing, props: { position/rotation/localRotation/scale/dissolve/definitePosition → points } }
+// Points: [[...values, time, (easing?)], ...]; values length 1 = scalar, 3 = vec3.
+const NOODLE_PROPS = ['_position', '_rotation', '_localRotation', '_scale', '_dissolve', '_dissolveArrow', '_definitePosition']
+
+function normPoints(v: any, pd: Record<string, any>): any {
+  if (v == null) return null
+  if (typeof v === 'string') return pd[v] ? normPoints(pd[v], pd) : null
+  if (!Array.isArray(v)) return typeof v === 'number' ? [[v, 0]] : null
+  if (!v.length) return null
+  if (Array.isArray(v[0])) return v // already keyframes
+  return [[...v, 0]] // constant vector/scalar → single keyframe
+}
+
+function pickNoodleProps(d: any, pd: Record<string, any>) {
+  const props: any = {}
+  for (const k of NOODLE_PROPS) {
+    if (d?.[k] == null) continue
+    const pts = normPoints(d[k], pd)
+    if (pts) props[k.slice(1)] = pts
+  }
+  return props
+}
+
+function parseNoodle(chart: any, spb: number) {
+  const cd = chart._customData || {}
+  const pd: Record<string, any> = {}
+  for (const def of cd._pointDefinitions || []) {
+    if (def?._name) pd[def._name] = def._points
+  }
+  const events: any[] = []
+  let skipped = 0
+  for (const e of cd._customEvents || []) {
+    if (e._type !== 'AnimateTrack' && e._type !== 'AssignPathAnimation') { skipped++; continue }
+    const d = e._data || {}
+    const tracks = (Array.isArray(d._track) ? d._track : [d._track]).filter(Boolean)
+    if (!tracks.length) continue
+    const props = pickNoodleProps(d, pd)
+    if (!Object.keys(props).length) continue
+    events.push({
+      t: (e._time || 0) * spb,
+      path: e._type === 'AssignPathAnimation',
+      tracks,
+      dur: (d._duration || 0) * spb,
+      easing: d._easing,
+      props,
+    })
+  }
+  if (skipped) console.log('[NOODLE] skipped unsupported custom events:', skipped)
+  events.sort((a, b) => a.t - b.t)
+  return { events, pd }
 }
 
 /** Parse one difficulty chart (v2 or v3) into playable data. Times converted to seconds. */
 function parseChart(chart: any, spb: number) {
   const notes: NoteData[] = [], walls: any[] = [], arcs: ArcData[] = []
+  const noodle = chart._notes ? parseNoodle(chart, spb) : null
   if (chart.colorNotes || chart.bombNotes) {
     // v3 format
     for (const n of chart.colorNotes || []) {
@@ -401,6 +455,7 @@ function parseChart(chart: any, spb: number) {
     }
   } else if (chart._notes) {
     // v2 format — skip Noodle Extensions fake notes/walls (decorative, not cuttable)
+    const noodlePd = noodle?.pd || {}
     for (const n of chart._notes) {
       const cd = n._customData
       if (cd?._fake) continue
@@ -412,6 +467,12 @@ function parseChart(chart: any, spb: number) {
         note.x = Math.max(0, Math.min(3, Math.round(cd._position[0] + 2)))
         note.y = Math.max(0, Math.min(2, Math.round(cd._position[1] || 0)))
       }
+      if (cd?._track) (note as any).track = Array.isArray(cd._track) ? cd._track : [cd._track]
+      if (cd?._animation) {
+        const a = pickNoodleProps(cd._animation, noodlePd)
+        if (Object.keys(a).length) (note as any).anim = a
+      }
+      if (cd?._interactable === false) (note as any).ghost = true
       notes.push(note)
     }
     const LX = [-0.9, -0.3, 0.3, 0.9]
@@ -426,14 +487,20 @@ function parseChart(chart: any, spb: number) {
         const sh = Array.isArray(cd._scale) ? (cd._scale[1] || 1) : 3
         const wwWorld = Math.max(0.05, sw * 0.6)
         const whWorld = Math.max(0.05, sh * 0.5)
-        walls.push({
+        const w: any = {
           t: o._time, dur: Math.max(o._duration || 0, 0.02),
           side: 0, width: 1, type: o._type, wallScale: 1, crouch: false,
           color: chromaHex(cd._color),
           wx: 0.3 + px * 0.6 + wwWorld / 2,
           wy: 0.85 + py * 0.5 + whWorld / 2,
           ww: wwWorld, wh: whWorld,
-        })
+        }
+        if (cd._track) w.track = Array.isArray(cd._track) ? cd._track : [cd._track]
+        if (cd._animation) {
+          const a = pickNoodleProps(cd._animation, noodle?.pd || {})
+          if (Object.keys(a).length) w.anim = a
+        }
+        walls.push(w)
         continue
       }
       const li = Math.max(0, Math.min(3, o._lineIndex || 0))
@@ -468,7 +535,9 @@ function parseChart(chart: any, spb: number) {
   notes.sort((a, b) => a.t - b.t)
   arcs.sort((a, b) => a.t - b.t)
   const lights = parseLightEvents(chart, spb)
-  return { notes, walls, arcs, lights, label: '' }
+  const noodleEvents = noodle?.events?.length ? noodle.events : undefined
+  if (noodleEvents) console.log('[NOODLE]', noodleEvents.length, 'track animation events')
+  return { notes, walls, arcs, lights, noodle: noodleEvents, label: '' }
 }
 
 function clampIdx(v: number, max: number): number {
