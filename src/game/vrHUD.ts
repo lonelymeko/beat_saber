@@ -353,7 +353,7 @@ export class VRHUD {
     ctx.textAlign = 'center'
     ctx.font = '16px "Rajdhani", "Avenir Next", "PingFang SC", sans-serif'
     ctx.fillStyle = '#7b84ab'
-    ctx.fillText('LEFT TRIGGER: RETRY  |  RIGHT TRIGGER: MENU', 512, 530)
+    ctx.fillText('激光指向下方按钮 · 扣扳机选择  (POINT & TRIGGER)', 512, 530)
   }
 
   _drawFail(title, sub, score) {
@@ -379,7 +379,7 @@ export class VRHUD {
 
     ctx.font = '16px "Rajdhani", "Avenir Next", "PingFang SC", sans-serif'
     ctx.fillStyle = '#7b84ab'
-    ctx.fillText('LEFT TRIGGER: RETRY  |  RIGHT TRIGGER: MENU', 512, 450)
+    ctx.fillText('激光指向下方按钮 · 扣扳机选择  (POINT & TRIGGER)', 512, 450)
   }
 
   _drawPause() {
@@ -394,8 +394,7 @@ export class VRHUD {
 
     ctx.font = '20px "Rajdhani", "Avenir Next", "PingFang SC", sans-serif'
     ctx.fillStyle = '#7b84ab'
-    ctx.fillText('LEFT TRIGGER: RESUME  |  RIGHT TRIGGER: RESTART', 512, 180)
-    ctx.fillText('LEFT MENU BUTTON: BACK TO MENU', 512, 220)
+    ctx.fillText('激光指向下方按钮 · 扣扳机选择  (POINT & TRIGGER)', 512, 180)
   }
 
   setSongLabel(label) {

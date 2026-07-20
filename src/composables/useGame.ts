@@ -633,7 +633,6 @@ export function useGame() {
       state.value = 'vrmenu'
       _vrFirstMenuFrame = true
       _vrTriggerDown = { left: false, right: false }
-      _vrPostGameCooldown = 0.5
     } else {
       state.value = 'menu'
     }
@@ -786,7 +785,10 @@ export function useGame() {
       return
     }
     if (XR.active && (state.value === 'results' || state.value === 'failed' || state.value === 'paused')) {
-      _handleVRPostGameInput(dt)
+      if (vrPanelState !== state.value) buildVRPanel(state.value)
+      updateVRPanel(dt)
+    } else if (vrPanelState) {
+      cleanupVRPanel()
     }
     if (state.value === 'vrmenu') {
       if (env) env.update(dt, time)
@@ -1149,35 +1151,6 @@ export function useGame() {
   let _vrPauseBtnPressed = false
   let _noteSpawnLogged = false
   let _invincibleUsed = false
-  let _vrPostGameCooldown = 0
-  let _vrPostGameLastTrigger = { left: false, right: false }
-
-  function _handleVRPostGameInput(dt) {
-    if (_vrPostGameCooldown > 0) { _vrPostGameCooldown -= dt; return }
-    if (!XR.session) return
-    for (const src of XR.session.inputSources) {
-      if (src.handedness !== 'right' && src.handedness !== 'left') continue
-      const gp = src.gamepad
-      if (!gp) continue
-      const hand = src.handedness
-      const triggerPressed = (gp.buttons[0] && (gp.buttons[0].value > 0.5 || gp.buttons[0].pressed))
-      const aPressed = gp.buttons[4]?.pressed || gp.buttons[5]?.pressed
-      const inputPressed = triggerPressed || aPressed
-
-      if (inputPressed && !_vrPostGameLastTrigger[hand]) {
-        _vrPostGameLastTrigger[hand] = true
-        _vrPostGameCooldown = 0.5
-        if (state.value === 'paused') {
-          if (hand === 'left') { log('vr-pause', 'resume'); resumeSong() }
-          else if (hand === 'right') { log('vr-pause', 'startSong'); startSong(songIdx.value) }
-        } else if (state.value === 'results' || state.value === 'failed') {
-          if (hand === 'left') { log('vr-postgame', 'retry'); startSong(songIdx.value) }
-          else { log('vr-postgame', 'quit-to-menu'); quitToMenu() }
-        }
-      }
-      _vrPostGameLastTrigger[hand] = inputPressed
-    }
-  }
 
   function _createVRSaberMesh(color) {
     const g = new THREE.Group()
@@ -1490,6 +1463,154 @@ export function useGame() {
       if (_vrTriggerLogCount % 120 === 0) {
         log('trigger-debug', { triggerValue: gp.buttons[0]?.value, triggerPressed: gp.buttons[0]?.pressed, hovered, hand, buttonsLen: gp.buttons.length })
       }
+    }
+  }
+
+  // ========== VR state panels: card buttons for pause / results / fail ==========
+  let vrPanelGroup = null
+  let vrPanelItems = []
+  let vrPanelState = ''
+  let vrPanelLaserL = null
+  let vrPanelLaserR = null
+  let _vrPanelTriggerDown = { left: false, right: false }
+  let _vrPanelCooldown = 0
+
+  function _makePanelCard(cn, en, accent) {
+    const c = document.createElement('canvas')
+    c.width = 512; c.height = 160
+    const g = c.getContext('2d')
+    const r = 26
+    g.beginPath()
+    g.moveTo(r, 2)
+    g.arcTo(510, 2, 510, 158, r)
+    g.arcTo(510, 158, 2, 158, r)
+    g.arcTo(2, 158, 2, 2, r)
+    g.arcTo(2, 2, 510, 2, r)
+    g.closePath()
+    g.fillStyle = 'rgba(8,10,22,0.94)'
+    g.fill()
+    g.lineWidth = 4
+    g.strokeStyle = accent
+    g.globalAlpha = 0.85
+    g.stroke()
+    g.globalAlpha = 1
+    g.textAlign = 'center'
+    g.fillStyle = '#ffffff'
+    g.font = 'bold 58px "PingFang SC", "Microsoft YaHei", sans-serif'
+    g.fillText(cn, 256, 78)
+    g.fillStyle = accent
+    g.font = '26px "Rajdhani", sans-serif'
+    g.fillText(en, 256, 126)
+    const tex = new THREE.CanvasTexture(c)
+    return new THREE.Mesh(
+      new THREE.PlaneGeometry(0.85, 0.27),
+      new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, side: THREE.DoubleSide }),
+    )
+  }
+
+  function buildVRPanel(st) {
+    cleanupVRPanel()
+    vrPanelState = st
+    _vrPanelCooldown = 0.6
+    _vrPanelTriggerDown = { left: true, right: true } // require trigger release before first click
+    vrPanelGroup = new THREE.Group()
+    vrPanelGroup.position.set(0, 1.1, -2.1)
+    scene.add(vrPanelGroup)
+    const defs = st === 'paused' ? [
+      { cn: '继续', en: 'RESUME', accent: '#39e07f', act: () => resumeSong() },
+      { cn: '重新开始', en: 'RESTART', accent: '#7fdcff', act: () => startSong(songIdx.value) },
+      { cn: '选歌菜单', en: 'SONG MENU', accent: '#ff6ec7', act: () => quitToMenu() },
+    ] : [
+      { cn: st === 'failed' ? '重试' : '再来一次', en: 'RETRY', accent: '#7fdcff', act: () => startSong(songIdx.value) },
+      { cn: '选歌菜单', en: 'SONG MENU', accent: '#ff6ec7', act: () => quitToMenu() },
+    ]
+    defs.forEach((d, i) => {
+      const card = _makePanelCard(d.cn, d.en, d.accent)
+      card.position.x = (i - (defs.length - 1) / 2) * 0.95
+      card.userData = { act: d.act }
+      vrPanelGroup.add(card)
+      vrPanelItems.push(card)
+    })
+    const laserGeo = new THREE.CylinderGeometry(0.006, 0.006, 1, 4)
+    laserGeo.translate(0, 0.5, 0)
+    vrPanelLaserL = new THREE.Mesh(laserGeo, new THREE.MeshBasicMaterial({ color: 0xff2b2b }))
+    vrPanelLaserR = new THREE.Mesh(laserGeo.clone(), new THREE.MeshBasicMaterial({ color: 0x00e5ff }))
+    scene.add(vrPanelLaserL)
+    scene.add(vrPanelLaserR)
+    log('vr-panel-open', { state: st, buttons: defs.length })
+  }
+
+  function cleanupVRPanel() {
+    if (vrPanelGroup) {
+      scene.remove(vrPanelGroup)
+      vrPanelGroup.traverse((o: any) => {
+        if (o.geometry) o.geometry.dispose()
+        if (o.material) { if (o.material.map) o.material.map.dispose(); o.material.dispose() }
+      })
+      vrPanelGroup = null
+    }
+    vrPanelItems = []
+    ;[vrPanelLaserL, vrPanelLaserR].forEach(l => {
+      if (l) { scene.remove(l); l.geometry.dispose(); l.material.dispose() }
+    })
+    vrPanelLaserL = null
+    vrPanelLaserR = null
+    vrPanelState = ''
+  }
+
+  function updateVRPanel(dt) {
+    if (_vrPanelCooldown > 0) _vrPanelCooldown -= dt
+    let hovered = -1
+    for (const card of vrPanelItems) card.scale.setScalar(1)
+    for (const hand of ['left', 'right']) {
+      const laser = hand === 'left' ? vrPanelLaserL : vrPanelLaserR
+      if (!laser) continue
+      const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(_ctrlQuat[hand])
+      const start = _ctrlPos[hand].clone()
+      let closestHit = -1
+      let closestDist = Infinity
+      for (let i = 0; i < vrPanelItems.length; i++) {
+        const cardWorld = new THREE.Vector3()
+        vrPanelItems[i].getWorldPosition(cardWorld)
+        const n = new THREE.Vector3(0, 0, 1)
+        const denom = dir.dot(n)
+        if (Math.abs(denom) < 0.001) continue
+        const t = (cardWorld.dot(n) - start.dot(n)) / denom
+        if (t > 0 && t < 10) {
+          const pt = start.clone().addScaledVector(dir, t)
+          if (Math.abs(pt.x - cardWorld.x) < 0.47 && Math.abs(pt.y - cardWorld.y) < 0.16) {
+            if (t < closestDist) { closestDist = t; closestHit = i }
+          }
+        }
+      }
+      laser.visible = true
+      const end = closestHit >= 0 ? closestDist : 3
+      laser.position.copy(start.clone().addScaledVector(dir, end * 0.5))
+      laser.scale.y = end
+      laser.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir)
+      if (closestHit >= 0) { vrPanelItems[closestHit].scale.setScalar(1.12); hovered = closestHit }
+    }
+    if (!XR.session) return
+    for (const src of XR.session.inputSources) {
+      const hand = src.handedness
+      if (hand !== 'left' && hand !== 'right') continue
+      const gp = src.gamepad
+      if (!gp) continue
+      let pressed = false
+      if (gp.buttons) {
+        for (let i = 0; i < gp.buttons.length; i++) {
+          const b = gp.buttons[i]
+          if (b && (i === 0 || i === 2 || i === 4) && (b.value > 0.3 || b.pressed)) pressed = true
+        }
+      }
+      if (gp.axes && gp.axes.length > 0 && Math.abs(gp.axes[0] || 0) > 0.3) pressed = true
+      if (pressed && !_vrPanelTriggerDown[hand] && hovered >= 0 && _vrPanelCooldown <= 0) {
+        _vrPanelTriggerDown[hand] = true
+        log('vr-panel-click', { state: vrPanelState, hovered })
+        vrPanelItems[hovered].userData.act()
+        return
+      }
+      _vrPanelTriggerDown[hand] = pressed
     }
   }
 
