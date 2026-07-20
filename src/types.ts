@@ -41,6 +41,11 @@ export interface WallData {
   crouch: boolean
   /** Chroma per-wall color override (hex) */
   color?: number
+  /** Noodle Extensions precise placement (world units, center) — decorative walls */
+  wx?: number
+  wy?: number
+  ww?: number
+  wh?: number
 }
 
 /**

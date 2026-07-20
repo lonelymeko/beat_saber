@@ -1170,6 +1170,7 @@ export function useGame() {
         G.leanTarget = 0
         for (const o of G.walls) {
           const frontZ = G.hitZ + (t - o.w.t) * meta.value.speed
+          if (o.w.wx != null) continue // decorative noodle wall: no dodge
           if (frontZ > -14 && frontZ - o.len < 1) { G.leanTarget = -o.w.side * 0.85; break }
         }
       }

@@ -402,12 +402,40 @@ function parseChart(chart: any, spb: number) {
   } else if (chart._notes) {
     // v2 format — skip Noodle Extensions fake notes/walls (decorative, not cuttable)
     for (const n of chart._notes) {
-      if (n._customData?._fake) continue
-      notes.push({ t: n._time, x: n._lineIndex, y: n._lineLayer, type: n._type, dir: n._cutDirection, color: chromaHex(n._customData?._color) })
+      const cd = n._customData
+      if (cd?._fake) continue
+      const note: NoteData = { t: n._time, x: n._lineIndex, y: n._lineLayer, type: n._type, dir: n._cutDirection, color: chromaHex(cd?._color) }
+      // Noodle precise position: [x, y] grid floats where x = lineIndex - 2
+      if (Array.isArray(cd?._position)) {
+        note.wx = 0.3 + cd._position[0] * 0.6
+        note.wy = 0.85 + (cd._position[1] || 0) * 0.5
+        note.x = Math.max(0, Math.min(3, Math.round(cd._position[0] + 2)))
+        note.y = Math.max(0, Math.min(2, Math.round(cd._position[1] || 0)))
+      }
+      notes.push(note)
     }
     const LX = [-0.9, -0.3, 0.3, 0.9]
     for (const o of chart._obstacles || []) {
-      if (o._customData?._fake) continue
+      const cd = o._customData
+      if (cd?._fake) continue
+      if (cd && (Array.isArray(cd._position) || Array.isArray(cd._scale))) {
+        // Noodle wall art: place at true coords (usually far off the track)
+        const px = Array.isArray(cd._position) ? cd._position[0] : (o._lineIndex || 0) - 2
+        const py = Array.isArray(cd._position) ? (cd._position[1] || 0) : 0
+        const sw = Array.isArray(cd._scale) ? (cd._scale[0] || 1) : (o._width || 1)
+        const sh = Array.isArray(cd._scale) ? (cd._scale[1] || 1) : 3
+        const wwWorld = Math.max(0.05, sw * 0.6)
+        const whWorld = Math.max(0.05, sh * 0.5)
+        walls.push({
+          t: o._time, dur: Math.max(o._duration || 0, 0.02),
+          side: 0, width: 1, type: o._type, wallScale: 1, crouch: false,
+          color: chromaHex(cd._color),
+          wx: 0.3 + px * 0.6 + wwWorld / 2,
+          wy: 0.85 + py * 0.5 + whWorld / 2,
+          ww: wwWorld, wh: whWorld,
+        })
+        continue
+      }
       const li = Math.max(0, Math.min(3, o._lineIndex || 0))
       const ww = Math.max(1, Math.min(4, o._width || 1))
       const endIdx = Math.min(3, li + ww - 1)
@@ -418,9 +446,21 @@ function parseChart(chart: any, spb: number) {
         width: ww, type: o._type,
         wallScale: (endX - startX + 0.6) / 1.15,
         crouch: o._type === 1,
-        color: chromaHex(o._customData?._color),
+        color: chromaHex(cd?._color),
       })
     }
+  }
+  // Wall-art maps can carry 15k+ walls; sample decorations down to keep rendering sane
+  const MAX_WALLS = 3500
+  if (walls.length > MAX_WALLS) {
+    const gameplay = walls.filter(w => w.wx == null)
+    const deco = walls.filter(w => w.wx != null)
+    const keepEvery = Math.ceil(deco.length / (MAX_WALLS - gameplay.length))
+    const sampled = deco.filter((_, i) => i % keepEvery === 0)
+    console.log('[ZIP-WALLS] sampled decorative walls', deco.length, '→', sampled.length)
+    walls.length = 0
+    walls.push(...gameplay, ...sampled)
+    walls.sort((a, b) => a.t - b.t)
   }
   for (const n of notes) n.t = n.t * spb
   for (const w of walls) w.t = w.t * spb

@@ -77,9 +77,9 @@ export function createArcMesh(a, speed, color) {
 }
 
 export function createWallMesh(w, speed, hitZ) {
-  const len = w.dur * speed
-  const wallH = w.crouch ? 1.3 : 2.9
-  const wallW = w.wallScale != null ? 1.15 * w.wallScale : 1.15
+  const len = Math.max(w.dur * speed, 0.05)
+  const wallH = w.wh ?? (w.crouch ? 1.3 : 2.9)
+  const wallW = w.ww ?? (w.wallScale != null ? 1.15 * w.wallScale : 1.15)
   // Official look: deep translucent red body with bright glowing edges (Chroma color honored)
   const baseCol = new THREE.Color(w.color != null ? w.color : 0xd8103c)
   const fillMat = new THREE.MeshBasicMaterial({
@@ -94,8 +94,8 @@ export function createWallMesh(w, speed, hitZ) {
   const edge = new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry), edgeMat)
   m.add(edge)
   m.userData.ownMats = [fillMat, edgeMat]
-  const x = w.wallScale != null ? w.side * 0.58 : w.side * 0.58
-  const y = w.crouch ? 2.1 : 1.55
+  const x = w.wx ?? w.side * 0.58
+  const y = w.wy ?? (w.crouch ? 2.1 : 1.55)
   m.position.set(x, y, hitZ - SPAWN_DIST)
   return { m, len }
 }
