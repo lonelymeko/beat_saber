@@ -90,50 +90,44 @@ export function createWallMesh(w, speed, hitZ) {
 }
 
 export function createHalves(note, angle, sp, good, noteCol, textures, hotTex) {
+  // Official-style slice: the block splits into two halves along the saber
+  // swing plane, each with a white-hot glowing cut face, flying apart.
   const halves = []
-  const nx = -Math.sin(angle)
+  const nx = -Math.sin(angle)   // cut-plane normal (halves separate along this)
   const ny = Math.cos(angle)
   const baseColor = new THREE.Color(noteCol)
-  const glowColor = good ? baseColor.clone().lerp(new THREE.Color(0xffffff), 0.6) : baseColor.clone().lerp(new THREE.Color(0xffffff), 0.15)
+  const glowColor = baseColor.clone().lerp(new THREE.Color(0xffffff), good ? 0.8 : 0.35)
+  const bodyMat = note.g.children[0]?.material
 
-  // 4 debris pieces flying in cut direction
-  for (let s = -1; s <= 1; s += 2) {
-    for (let p = -1; p <= 1; p += 2) {
-      const grp = new THREE.Group()
-      // Debris shard
-      const mat = new THREE.MeshStandardMaterial({
-        color: noteCol, metalness: 0.3, roughness: 0.6,
-        emissive: noteCol, emissiveIntensity: 0.4 + (good ? 0.6 : 0.1),
-      })
-      const shard = new THREE.Mesh(
-        new THREE.BoxGeometry(0.12, 0.12, 0.12 + Math.random() * 0.15),
-        mat,
-      )
-      shard.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI)
-      grp.add(shard)
+  for (let side = -1; side <= 1; side += 2) {
+    const grp = new THREE.Group()
+    const body = new THREE.Mesh(halfGeo, bodyMat)
+    body.position.y = side * 0.13
+    grp.add(body)
 
-      // Glow overlay
-      const hotMat = new THREE.MeshBasicMaterial({
-        map: textures.hotTex, transparent: true, opacity: good ? 0.9 : 0.3,
-        color: glowColor, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
-      })
-      const hot = new THREE.Mesh(textures.hotGeo, hotMat)
-      hot.position.z = 0.26
-      grp.add(hot)
+    // Glowing cut face on the sliced side
+    const hotMat = new THREE.MeshBasicMaterial({
+      color: glowColor, transparent: true, opacity: good ? 0.95 : 0.5,
+      blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+    })
+    const face = new THREE.Mesh(hotTex, hotMat)
+    face.rotation.x = Math.PI / 2
+    face.position.y = side * 0.012
+    grp.add(face)
 
-      grp.position.copy(note.g.position)
-      const spStr = sp * (0.5 + Math.random() * 0.8)
-      halves.push({
-        m: grp, hotMat,
-        vx: nx * s * (0.8 + spStr) + p * (Math.random() - 0.5) * 2,
-        vy: ny * s * (0.8 + spStr) + 1.0 + Math.random() * 2,
-        vz: 2 + Math.random() * 4 + sp * 0.3,
-        rx: (Math.random() - 0.5) * 12,
-        ry: (Math.random() - 0.5) * 12,
-        rz: (Math.random() - 0.5) * 12,
-        life: 0.55 + Math.random() * 0.25,
-      })
-    }
+    grp.position.copy(note.g.position)
+    grp.rotation.z = angle   // local +y = cut normal
+    const sep = 1.1 + Math.min(2.2, sp * 0.14) + Math.random() * 0.3
+    halves.push({
+      m: grp, hotMat,
+      vx: nx * side * sep + (Math.random() - 0.5) * 0.4,
+      vy: ny * side * sep + 0.7,
+      vz: 3.4 + sp * 0.22,
+      rx: side * (1.6 + Math.random() * 1.4),
+      ry: 0,
+      rz: (Math.random() - 0.5) * 1.6,
+      life: 0.75 + Math.random() * 0.15,
+    })
   }
   return halves
 }

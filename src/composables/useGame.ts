@@ -334,9 +334,9 @@ export function useGame() {
     const noteCol = note.d.type === 0 ? meta.value.colorL : meta.value.colorR
     G.halves.push(...createHalves(note, angle, sp, true, noteCol, textures, hotTexGeo))
     G.halves.forEach(h => scene.add(h.m))
-    spawnBurst(note.g.position, saber.color, 16, 0.13, 5.5)
+    spawnBurst(note.g.position, saber.color, 10, 0.1, 4.5)
     spawnText(note.g.position, String(pts), pts >= 108 ? '#ffd76e' : (pts >= 95 ? '#ffffff' : '#9fb0ff'))
-    synth.sfxSlash(saber.hand === 'L' ? -0.4 : 0.4)
+    synth.sfxHit(saber.hand === 'L' ? -0.4 : 0.4, 0.85, 0.97 + Math.random() * 0.06)
     G.shake = Math.min(0.5, G.shake + 0.12)
     removeNote(note)
     updateHUD()
@@ -371,7 +371,7 @@ export function useGame() {
     addCombo()
     addEnergy(0.004)
     spawnBurst(note.g.position, saber.color, 8, 0.09, 3.5)
-    synth.sfxSlash(saber.hand === 'L' ? -0.4 : 0.4)
+    synth.sfxHit(saber.hand === 'L' ? -0.4 : 0.4, 0.4, 1.1 + Math.random() * 0.08, true)
     removeNote(note)
     updateHUD()
   }
@@ -476,7 +476,7 @@ export function useGame() {
 
   // ========== Flow ==========
   function ensureAudio() {
-    if (!synth) { synth = new Synth(); player = new MusicPlayer(synth) }
+    if (!synth) { synth = new Synth(); player = new MusicPlayer(synth); synth.loadHitSounds() }
     if (synth.ctx.state === 'suspended') synth.ctx.resume()
     return !!synth && !!synth.ctx
   }
@@ -981,6 +981,7 @@ export function useGame() {
       h.m.position.z += h.vz * dt
       h.m.rotation.x += h.rx * dt
       h.m.rotation.z += h.rz * dt
+      if (h.hotMat && h.life < 0.3) h.hotMat.opacity = Math.max(0, h.life / 0.3) * 0.95
     }
 
     // Bursts

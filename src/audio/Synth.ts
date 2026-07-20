@@ -284,6 +284,41 @@ export class Synth {
     n.connect(f); f.connect(g); g.connect(this.music)
   }
 
+  hitBufs: { hit?: AudioBuffer; soft?: AudioBuffer } = {}
+  _hitLoading = false
+
+  /** Load sampled hit sounds from /sfx/. Falls back to synth sfxSlash when absent. */
+  loadHitSounds() {
+    if (this._hitLoading) return
+    this._hitLoading = true
+    for (const [key, url] of [['hit', '/sfx/hit.ogg'], ['soft', '/sfx/hit-soft.ogg']] as const) {
+      fetch(url)
+        .then(r => { if (!r.ok) throw new Error(String(r.status)); return r.arrayBuffer() })
+        .then(ab => this.ctx.decodeAudioData(ab))
+        .then(buf => { this.hitBufs[key] = buf })
+        .catch(() => {})
+    }
+  }
+
+  /** Sampled block-hit sound; soft variant for chain links. */
+  sfxHit(pan = 0, vol = 1, rate = 1, soft = false) {
+    const buf = soft ? (this.hitBufs.soft || this.hitBufs.hit) : this.hitBufs.hit
+    if (!buf) { this.sfxSlash(pan); return }
+    const t = this.now()
+    const s = this.ctx.createBufferSource()
+    s.buffer = buf
+    s.playbackRate.value = rate
+    const g = this.ctx.createGain()
+    g.gain.value = vol
+    if (this.ctx.createStereoPanner) {
+      const p = this.ctx.createStereoPanner()
+      p.pan.value = pan
+      s.connect(p); p.connect(g)
+    } else s.connect(g)
+    g.connect(this.sfx)
+    s.start(t)
+  }
+
   sfxSlash(pan = 0) {
     const t = this.now()
     // Punch layer - deep thump

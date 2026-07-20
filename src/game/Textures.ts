@@ -13,28 +13,32 @@ let cached = null
 export function initTextures() {
   if (cached) return cached
 
+  // Official-style face: a wide thick chevron (no stem), rounded corners, strong glow
   const arrowTex = makeTex(128, 128, (g) => {
-    g.shadowColor = 'rgba(255,255,255,0.9)'
-    g.shadowBlur = 12
+    g.shadowColor = 'rgba(255,255,255,0.95)'
+    g.shadowBlur = 14
     g.fillStyle = '#fff'
+    g.strokeStyle = '#fff'
+    g.lineWidth = 10
+    g.lineJoin = 'round'
     g.beginPath()
-    g.moveTo(64, 18)
-    g.lineTo(102, 62)
-    g.lineTo(78, 62)
-    g.lineTo(78, 110)
-    g.lineTo(50, 110)
-    g.lineTo(50, 62)
-    g.lineTo(26, 62)
+    g.moveTo(18, 88)
+    g.lineTo(64, 38)
+    g.lineTo(110, 88)
+    g.lineTo(86, 88)
+    g.lineTo(64, 64)
+    g.lineTo(42, 88)
     g.closePath()
     g.fill()
+    g.stroke()
   })
 
   const dotTex = makeTex(128, 128, (g) => {
-    g.shadowColor = 'rgba(255,255,255,0.9)'
-    g.shadowBlur = 12
+    g.shadowColor = 'rgba(255,255,255,0.95)'
+    g.shadowBlur = 14
     g.fillStyle = '#fff'
     g.beginPath()
-    g.arc(64, 64, 21, 0, Math.PI * 2)
+    g.arc(64, 64, 27, 0, Math.PI * 2)
     g.fill()
   })
 
