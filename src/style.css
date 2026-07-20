@@ -1189,3 +1189,40 @@ canvas {
   0% { left: -40%; }
   100% { left: 100%; }
 }
+
+/* ---------- Graphics quality pills ---------- */
+.quality-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.q-label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  color: #7b84ab;
+  margin-right: 4px;
+}
+
+.q-pill {
+  min-width: 44px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  color: #a8b4d8;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.q-pill:hover { background: rgba(255, 255, 255, 0.09); }
+
+.q-pill.on {
+  background: linear-gradient(90deg, rgba(255,43,76,0.25), rgba(43,123,255,0.25));
+  border-color: #7fdcff;
+  color: #fff;
+}

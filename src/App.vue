@@ -245,6 +245,17 @@ onUnmounted(() => {
           <span class="sw"></span>
           NO FAIL · 血量清空不失败但扣 50% 分数
         </div>
+        <div class="quality-line">
+          <span class="q-label">画质 GRAPHICS</span>
+          <button
+            v-for="q in [['high','高'],['medium','中'],['low','低']]"
+            :key="q[0]"
+            class="q-pill"
+            :class="{ on: game.quality.value === q[0] }"
+            @click="game.setQuality(q[0])"
+            @mouseenter="game.uiHover()"
+          >{{ q[1] }}</button>
+        </div>
       </div>
 
       <div class="detail-actions">

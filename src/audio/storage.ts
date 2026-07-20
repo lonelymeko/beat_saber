@@ -38,6 +38,8 @@ export async function saveMap(mapId: string, data: any): Promise<void> {
       speed: data.speed,
       colorL: data.colorL,
       colorR: data.colorR,
+      envColorL: data.envColorL,
+      envColorR: data.envColorR,
       cardBg: data.cardBg,
       coverBuffer,
       notes: data.internal?.notes || [],
@@ -102,6 +104,8 @@ function recordToSong(r: any): Song {
           speed: r.speed,
           colorL: r.colorL,
           colorR: r.colorR,
+          envColorL: r.envColorL,
+          envColorR: r.envColorR,
           cardBg: r.coverBuffer
             ? `url(${URL.createObjectURL(new Blob([r.coverBuffer]))}) center/cover no-repeat`
             : (r.cardBg || 'linear-gradient(160deg,#2b0a3d,#0e1445 55%,#032c3f)'),

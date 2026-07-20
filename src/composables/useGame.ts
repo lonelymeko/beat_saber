@@ -51,6 +51,8 @@ export function useGame() {
   const songListVersion = ref(0)
   // Local song loading toast: { active, label, pct (-1 = indeterminate) }
   const localLoad = ref({ active: false, label: '', pct: -1 })
+  // Graphics quality: high = full bloom, medium = half-res bloom, low = no post-processing
+  const quality = ref(localStorage.getItem('bs_quality') || 'high')
 
   // ========== Three.js Core ==========
   let renderer, scene, camera, composer, clock
@@ -106,14 +108,7 @@ export function useGame() {
     dl.position.set(2, 6, 3)
     scene.add(dl)
 
-    try {
-      composer = new EffectComposer(renderer)
-      composer.addPass(new RenderPass(scene, camera))
-      const bloom = new UnrealBloomPass(
-        new THREE.Vector2(window.innerWidth, window.innerHeight), 0.95, 0.55, 0.32,
-      )
-      composer.addPass(bloom)
-    } catch (e) { composer = null }
+    rebuildComposer()
 
     envTex = makeEnvMap(renderer)
 
@@ -565,7 +560,7 @@ export function useGame() {
     clearPlayfield()
 
     if (env) env.dispose()
-    env = createEnv(meta.value.env, scene, meta.value.colorL, meta.value.colorR)
+    env = createEnv(meta.value.env, scene, (meta.value as any).envColorL ?? meta.value.colorL, (meta.value as any).envColorR ?? meta.value.colorR)
     env.hasLightEvents = (G.song.lights?.length || 0) > 0
 
     if (saberL) saberL.dispose()
@@ -743,6 +738,30 @@ export function useGame() {
     if (synth) synth.sfxClick()
   }
 
+  // ========== Graphics quality ==========
+  function rebuildComposer() {
+    composer = null
+    if (quality.value === 'low') return
+    try {
+      const scale = quality.value === 'medium' ? 0.5 : 1
+      composer = new EffectComposer(renderer)
+      composer.addPass(new RenderPass(scene, camera))
+      const bloom = new UnrealBloomPass(
+        new THREE.Vector2(window.innerWidth * scale, window.innerHeight * scale),
+        quality.value === 'medium' ? 0.8 : 0.95, 0.55, 0.32,
+      )
+      composer.addPass(bloom)
+    } catch (e) { composer = null }
+  }
+
+  function setQuality(q: string) {
+    if (q !== 'high' && q !== 'medium' && q !== 'low') return
+    quality.value = q
+    localStorage.setItem('bs_quality', q)
+    rebuildComposer()
+    if (synth) synth.sfxClick()
+  }
+
   // Ambient official stage behind the desktop menu (official colors, slow lasers)
   function ensureMenuEnv() {
     if (env || !scene) return
@@ -776,8 +795,8 @@ export function useGame() {
         blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
       }),
     )
-    sign.position.set(10.5, 7, -26)
-    sign.rotation.y = -0.42
+    sign.position.set(23, 7, -26)
+    sign.rotation.y = -0.7
     env.group.add(sign)
     ;(env as any)._menuSign = sign
     ;(env as any)._signSeed = Math.random() * 100
@@ -1881,6 +1900,6 @@ export function useGame() {
     init, startSong, pauseSong, resumeSong, quitToMenu, failSong,
     onMouseMove, onKeyDown, onKeyUp, toggleAuto, toggleInvincible,
     handleMusicFile, searchSong, downloadSong, deleteDownloadedSong, enterVR, dumpLog, dispose,
-    uiClick, uiHover, previewSong,
+    uiClick, uiHover, previewSong, quality, setQuality,
   }
 }

@@ -368,9 +368,13 @@ async function parseZipManually(data: Uint8Array, mapData: any, coverBlob?: Blob
   console.log('[ZIP-LIGHTS]', lights.length, 'events')
   console.log('[ZIP-ARCS]', arcs.length, 'arcs,', notes.filter((n: NoteData) => n.link).length, 'chain links')
 
-  // Map-level custom colors (SongCore _customData in Info.dat)
+  // Map-level colors: SongCore _customData takes priority, then official _colorSchemes
   const cc = customColorsFor(info, chosenName)
-  if (cc.obstacle != null) for (const w of walls) { if (w.color == null) w.color = cc.obstacle }
+  const sc = schemeColorsFor(info, chosenName)
+  const colorL = cc.colorL ?? sc.colorL ?? 0xff2b2b
+  const colorR = cc.colorR ?? sc.colorR ?? 0x2b9eff
+  const obstacleCol = cc.obstacle ?? sc.obstacle
+  if (obstacleCol != null) for (const w of walls) { if (w.color == null) w.color = obstacleCol }
 
   const duration = mapData.duration || (notes.length > 0 ? notes[notes.length - 1].t + 3 : 180)
   const songName = info._songName || mapData.songName || '未知歌曲'
@@ -390,7 +394,8 @@ async function parseZipManually(data: Uint8Array, mapData: any, coverBlob?: Blob
     diff: diffLabel,
     env: THEME_ENV[mapData.id] || 'official',
     speed: 19,
-    colorL: cc.colorL ?? 0xff2b2b, colorR: cc.colorR ?? 0x2b9eff,
+    colorL, colorR,
+    envColorL: sc.envL, envColorR: sc.envR,
     cardBg: coverBlob ? `url(${URL.createObjectURL(coverBlob)}) center/cover no-repeat` : 'linear-gradient(160deg,#2b0a3d,#0e1445 55%,#032c3f)',
     coverBlob,
     audioUrl: url,
@@ -417,6 +422,32 @@ function chromaHex(c: any): number | undefined {
   if (typeof r !== 'number' || typeof g !== 'number' || typeof b !== 'number') return undefined
   const u = (v: number) => Math.round(Math.max(0, Math.min(1, v)) * 255)
   return (u(r) << 16) | (u(g) << 8) | u(b)
+}
+
+/** Official per-map color schemes (Info.dat v2.1 _colorSchemes + _beatmapColorSchemeIdx). */
+function schemeColorsFor(info: any, chosenName: string | null) {
+  const out: { colorL?: number, colorR?: number, envL?: number, envR?: number, obstacle?: number } = {}
+  const schemes = info._colorSchemes
+  if (!chosenName || !Array.isArray(schemes) || !schemes.length) return out
+  const diffMap: any = { 'expert+': 'expertplus' }
+  let idx = 0
+  for (const set of info._difficultyBeatmapSets || []) {
+    for (const db of set._difficultyBeatmaps || []) {
+      const base = String(db._beatmapFilename || '').toLowerCase().replace(/\.dat$/, '')
+      let key = base.replace(/(standard|lawless|onesaber|360degree|90degree|noarrows|lightshow)$/, '')
+      key = diffMap[key] || key
+      if (key === chosenName) { idx = db._beatmapColorSchemeIdx ?? 0 }
+    }
+  }
+  const entry = schemes[Math.max(0, Math.min(schemes.length - 1, idx))]
+  if (!entry || entry.useOverride === false) return out
+  const s = entry.colorScheme || entry
+  out.colorL = chromaHex(s.saberAColor)
+  out.colorR = chromaHex(s.saberBColor)
+  out.envL = chromaHex(s.environmentColor0)
+  out.envR = chromaHex(s.environmentColor1)
+  out.obstacle = chromaHex(s.obstaclesColor)
+  return out
 }
 
 /** Map-level custom colors from Info.dat for the chosen difficulty (SongCore convention). */

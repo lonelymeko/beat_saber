@@ -84,6 +84,9 @@ export interface Song {
   speed: number
   colorL: number
   colorR: number
+  /** environment light colors when the map's color scheme differs from saber colors */
+  envColorL?: number
+  envColorR?: number
   cardBg?: string
   coverBlob?: Blob | null
   audioUrl?: string
