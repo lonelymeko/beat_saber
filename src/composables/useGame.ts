@@ -837,6 +837,17 @@ export function useGame() {
     } catch (e) { /* keep silence */ }
   }
 
+  // Switch a song's selected difficulty (plays via build() merging diffs[currentDiff])
+  function setSongDifficulty(idx, key) {
+    const song: any = SONGS[idx]
+    if (!song?.internal?.diffs?.[key]) return
+    song.internal.currentDiff = key
+    song.diff = song.internal.diffs[key].label || key
+    if (typeof song.style === 'string' && song.style.startsWith('BeatSaver')) song.style = `BeatSaver · ${song.diff}`
+    songListVersion.value++
+    if (synth) synth.sfxClick()
+  }
+
   // ========== UI sounds (DOM menu hooks) ==========
   function uiClick() {
     ensureAudio()
@@ -1900,6 +1911,6 @@ export function useGame() {
     init, startSong, pauseSong, resumeSong, quitToMenu, failSong,
     onMouseMove, onKeyDown, onKeyUp, toggleAuto, toggleInvincible,
     handleMusicFile, searchSong, downloadSong, deleteDownloadedSong, enterVR, dumpLog, dispose,
-    uiClick, uiHover, previewSong, quality, setQuality,
+    uiClick, uiHover, previewSong, quality, setQuality, setSongDifficulty,
   }
 }

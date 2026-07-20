@@ -42,7 +42,10 @@ export async function saveMap(mapId: string, data: any): Promise<void> {
       envColorR: data.envColorR,
       cardBg: data.cardBg,
       coverBuffer,
-      notes: data.internal?.notes || [],
+      diffs: data.internal?.diffs || null,
+      currentDiff: data.internal?.currentDiff || null,
+      diffList: data.diffList || null,
+      notes: data.internal?.notes || data.build?.()?.notes || [],
       walls: data.internal?.walls || [],
       lights: data.internal?.lights || [],
       arcs: data.internal?.arcs || [],
@@ -91,9 +94,15 @@ export async function loadAllMaps(onEach?: (song: Song, index: number, total: nu
 const BUILTIN_IDS = new Set(['bs_4f454'])
 
 function recordToSong(r: any): Song {
+  // Legacy records stored a single chart; wrap it as one difficulty
+  const diffs = r.diffs || {
+    legacy: { notes: r.notes || [], walls: r.walls || [], lights: r.lights || [], arcs: r.arcs || [], label: r.diff || 'Hard' },
+  }
+  const currentDiff = (r.currentDiff && diffs[r.currentDiff]) ? r.currentDiff : Object.keys(diffs)[0]
   return ({
           id: r.id,
           builtin: BUILTIN_IDS.has(r.id),
+          diffList: r.diffList || Object.keys(diffs).map(k => ({ key: k, label: diffs[k].label || k })),
           name: r.name,
           en: r.en,
           style: r.style,
@@ -112,16 +121,17 @@ function recordToSong(r: any): Song {
           coverBlob: r.coverBuffer ? new Blob([r.coverBuffer]) : null,
           internal: {
             events: [],
-            notes: r.notes || [],
-            walls: r.walls || [],
-            lights: r.lights || [],
-            arcs: r.arcs || [],
+            diffs, currentDiff,
             duration: r.duration || 180,
             bpm: r.bpm,
             spb: 60 / r.bpm,
             buffer: r.audioBuffer ? new Uint8Array(r.audioBuffer) : null,
           },
-          build() { return this.internal },
+          build() {
+            const it: any = this.internal
+            const d = it.diffs?.[it.currentDiff] || (it.diffs && Object.values(it.diffs)[0])
+            return d ? { ...it, notes: d.notes, walls: d.walls, lights: d.lights, arcs: d.arcs } : it
+          },
         }) as Song
 }
 

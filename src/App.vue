@@ -218,6 +218,17 @@ onUnmounted(() => {
             <span class="chip">{{ game.SONGS[selectedIdx].style }}</span>
             <span class="chip chip-desc">{{ game.SONGS[selectedIdx].desc }}</span>
           </div>
+          <div class="quality-line" v-if="game.SONGS[selectedIdx].diffList && game.SONGS[selectedIdx].diffList.length > 1" :key="'d' + game.songListVersion.value">
+            <span class="q-label">难度 DIFFICULTY</span>
+            <button
+              v-for="d in game.SONGS[selectedIdx].diffList"
+              :key="d.key"
+              class="q-pill"
+              :class="{ on: game.SONGS[selectedIdx].internal && game.SONGS[selectedIdx].internal.currentDiff === d.key }"
+              @click="game.setSongDifficulty(selectedIdx, d.key)"
+              @mouseenter="game.uiHover()"
+            >{{ d.label }}</button>
+          </div>
           <div
             class="play-btn"
             @click="playSelected()"

@@ -228,158 +228,70 @@ async function parseZipManually(data: Uint8Array, mapData: any, coverBlob?: Blob
     }
   }
 
-  const difficulties = {}
-  const allDatFiles = []
+  // Parse every difficulty chart, keyed by lowercased filename
+  const fileCharts: Record<string, any> = {}
   for (const name of Object.keys(files)) {
     const lower = name.toLowerCase()
     if (!lower.endsWith('.dat')) continue
-    allDatFiles.push(name)
-    const base = lower.split(/[\\/]/).pop().replace(/\.dat$/, '')
-    if (!base || base === 'info') continue
-    let key = base.replace(/(standard|lawless|onesaber|360degree|90degree|noarrows|lightshow)$/, '')
-    if (!key) key = base
-    const diffMap = { 'expert+': 'expertplus' }
-    key = diffMap[key] || key
-    console.log('[ZIP-DIFF]', name, '→', key)
-    try {
-      const parsed = JSON.parse(decoder.decode(files[name]))
-      difficulties[key] = parsed
-      console.log('[ZIP-NOTES]', key, 'notes:', parsed._notes?.length || 0, 'walls:', parsed._obstacles?.length || 0)
-    } catch (e) { console.log('[ZIP-FAIL]', name, e.message) }
-  }
-
-  const diffOrder = ['expertplus', 'expert', 'hard', 'normal', 'easy']
-  let chosenDiff = null, chosenName = null
-  for (const d of diffOrder) {
-    if (difficulties[d]) { chosenDiff = difficulties[d]; chosenName = d; break }
-  }
-  if (!chosenDiff) {
-    const keys = Object.keys(difficulties)
-    if (keys.length > 0) { chosenDiff = difficulties[keys[0]]; chosenName = keys[0] }
-  }
-  console.log('[ZIP-CHOSEN]', chosenName, 'notes:', chosenDiff?._notes?.length, 'keys:', Object.keys(difficulties))
-
-  const notes = [], walls = [], arcs: ArcData[] = []
-  if (chosenDiff) {
-    // Support both BeatSaver v2 (_notes/_obstacles) and v3 (colorNotes/bombNotes/obstacles)
-    if (chosenDiff.colorNotes || chosenDiff.bombNotes) {
-      // v3 format
-      if (chosenDiff.colorNotes) {
-        for (const n of chosenDiff.colorNotes) {
-          notes.push({ t: n.b, x: n.x, y: n.y, type: n.c, dir: n.d, color: chromaHex(n.customData?.color) })
-        }
-      }
-      if (chosenDiff.bombNotes) {
-        for (const n of chosenDiff.bombNotes) {
-          notes.push({ t: n.b, x: n.x, y: n.y, type: 3, dir: 8 })
-        }
-      }
-      // v3 arcs (sliders): visual guides between two notes
-      if (Array.isArray(chosenDiff.sliders)) {
-        for (const s of chosenDiff.sliders) {
-          const x1 = clampIdx(s.x, 3), y1 = clampIdx(s.y, 2)
-          const x2 = clampIdx(s.tx, 3), y2 = clampIdx(s.ty, 2)
-          arcs.push({
-            t: s.b, tb: s.tb, c: s.c,
-            x1: LANE_X[x1], y1: ROW_Y[y1], d1: s.d ?? 8, mu: s.mu ?? 1,
-            x2: LANE_X[x2], y2: ROW_Y[y2], d2: s.tc ?? 8, tmu: s.tmu ?? 1,
-          })
-        }
-      }
-      // v3 chains (burstSliders): head note stays a colorNote; add sc-1 link pads along the path
-      if (Array.isArray(chosenDiff.burstSliders)) {
-        for (const s of chosenDiff.burstSliders) {
-          const sc = Math.max(2, s.sc | 0)
-          const squish = s.s > 0 ? s.s : 1
-          const hx = LANE_X[clampIdx(s.x, 3)], hy = ROW_Y[clampIdx(s.y, 2)]
-          const tx = LANE_X[clampIdx(s.tx, 3)], ty = ROW_Y[clampIdx(s.ty, 2)]
-          const dv = DIR_VEC[s.d === 8 || s.d == null ? 8 : s.d]
-          const dist = Math.hypot(tx - hx, ty - hy)
-          // quadratic bezier: control point follows the head cut direction
-          const cx = hx + dv[0] * dist * 0.5
-          const cy = hy + dv[1] * dist * 0.5
-          for (let i = 1; i < sc; i++) {
-            const f = (i / (sc - 1)) * squish
-            const u = 1 - f
-            const wx = u * u * hx + 2 * u * f * cx + f * f * tx
-            const wy = u * u * hy + 2 * u * f * cy + f * f * ty
-            notes.push({
-              t: s.b + (s.tb - s.b) * f,
-              x: clampIdx(s.tx, 3), y: clampIdx(s.ty, 2),
-              type: s.c, dir: 8, link: true, wx, wy,
-            } as NoteData)
-          }
-        }
-      }
-      if (chosenDiff.obstacles) {
-        const LX = [-0.9, -0.3, 0.3, 0.9]
-        for (const o of chosenDiff.obstacles) {
-          const li = Math.max(0, Math.min(3, o.x || 0))
-          const ww = Math.max(1, Math.min(4, o.w || 1))
-          const endIdx = Math.min(3, li + ww - 1)
-          const startX = LX[li], endX = LX[endIdx]
-          walls.push({
-            t: o.b, dur: o.d,
-            side: (startX + endX) / 2 / 0.58,
-            width: ww, type: o.h === 1 ? 1 : 0,
-            wallScale: (endX - startX + 0.6) / 1.15,
-            crouch: o.h === 1,
-            color: chromaHex(o.customData?.color),
-          })
-        }
-      }
-    } else if (chosenDiff._notes) {
-      // v2 format
-      for (const n of chosenDiff._notes) {
-        notes.push({ t: n._time, x: n._lineIndex, y: n._lineLayer, type: n._type, dir: n._cutDirection, color: chromaHex(n._customData?._color) })
-      }
-      if (chosenDiff._obstacles) {
-        const LX = [-0.9, -0.3, 0.3, 0.9]
-        for (const o of chosenDiff._obstacles) {
-          const li = Math.max(0, Math.min(3, o._lineIndex || 0))
-          const ww = Math.max(1, Math.min(4, o._width || 1))
-          const endIdx = Math.min(3, li + ww - 1)
-          const startX = LX[li], endX = LX[endIdx]
-          walls.push({
-            t: o._time, dur: o._duration,
-            side: (startX + endX) / 2 / 0.58,
-            width: ww, type: o._type,
-            wallScale: (endX - startX + 0.6) / 1.15,
-            crouch: o._type === 1,
-            color: chromaHex(o._customData?._color),
-          })
-        }
-      }
-    }
+    const base = lower.split(/[\\/]/).pop()
+    if (!base || base === 'info.dat') continue
+    try { fileCharts[base] = JSON.parse(decoder.decode(files[name])) } catch (e: any) { console.log('[ZIP-FAIL]', name, e.message) }
   }
 
   let bpm = mapData.bpm || 120
   if (info._beatsPerMinute) bpm = info._beatsPerMinute
   const spb = 60 / bpm
 
-  // Convert beat-time to seconds for all notes and walls
-  for (const n of notes) n.t = n.t * spb
-  for (const w of walls) w.t = w.t * spb
-  for (const a of arcs) { a.t = a.t * spb; a.tb = a.tb * spb }
-  notes.sort((a, b) => a.t - b.t)
-  arcs.sort((a, b) => a.t - b.t)
-
-  const lights = chosenDiff ? parseLightEvents(chosenDiff, spb) : []
-  console.log('[ZIP-LIGHTS]', lights.length, 'events')
-  console.log('[ZIP-ARCS]', arcs.length, 'arcs,', notes.filter((n: NoteData) => n.link).length, 'chain links')
+  // Enumerate difficulties from Info.dat (authoritative filename→difficulty mapping),
+  // preferring the Standard characteristic so Lawless/OneSaber sets don't collide
+  const DIFF_RANK = ['easy', 'normal', 'hard', 'expert', 'expertplus']
+  const diffs: Record<string, any> = {}
+  const sets = info._difficultyBeatmapSets || []
+  const chosenSet = sets.find((s: any) => s._beatmapCharacteristicName === 'Standard') || sets[0]
+  if (chosenSet) {
+    for (const db of chosenSet._difficultyBeatmaps || []) {
+      const json = fileCharts[String(db._beatmapFilename || '').toLowerCase()]
+      const key = String(db._difficulty || '').toLowerCase()
+      if (!json || !key) continue
+      diffs[key] = parseChart(json, spb)
+      diffs[key].label = diffLabels[key] || db._difficulty
+    }
+  }
+  if (!Object.keys(diffs).length) {
+    // Fallback: filename heuristic for zips with broken Info sets
+    for (const [fname, json] of Object.entries(fileCharts)) {
+      let key = fname.replace(/\.dat$/, '').replace(/(standard|lawless|onesaber|360degree|90degree|noarrows|lightshow)$/, '')
+      key = ({ 'expert+': 'expertplus' } as any)[key] || key || 'hard'
+      diffs[key] = parseChart(json, spb)
+      diffs[key].label = diffLabels[key] || key.toUpperCase()
+    }
+  }
+  const currentDiff = [...DIFF_RANK].reverse().find(k => diffs[k]) || Object.keys(diffs)[0]
+  if (!currentDiff) throw new Error('找不到可用难度')
+  const cur = diffs[currentDiff]
+  console.log('[ZIP-CHOSEN]', currentDiff, 'of', Object.keys(diffs), 'notes:', cur.notes.length)
+  console.log('[ZIP-LIGHTS]', cur.lights.length, 'events')
+  console.log('[ZIP-ARCS]', cur.arcs.length, 'arcs,', cur.notes.filter((n: NoteData) => n.link).length, 'chain links')
 
   // Map-level colors: SongCore _customData takes priority, then official _colorSchemes
-  const cc = customColorsFor(info, chosenName)
-  const sc = schemeColorsFor(info, chosenName)
+  const cc = customColorsFor(info, currentDiff)
+  const sc = schemeColorsFor(info, currentDiff)
   const colorL = cc.colorL ?? sc.colorL ?? 0xff2b2b
   const colorR = cc.colorR ?? sc.colorR ?? 0x2b9eff
   const obstacleCol = cc.obstacle ?? sc.obstacle
-  if (obstacleCol != null) for (const w of walls) { if (w.color == null) w.color = obstacleCol }
+  if (obstacleCol != null) {
+    for (const k of Object.keys(diffs)) {
+      for (const w of diffs[k].walls) { if (w.color == null) w.color = obstacleCol }
+    }
+  }
 
-  const duration = mapData.duration || (notes.length > 0 ? notes[notes.length - 1].t + 3 : 180)
+  const duration = mapData.duration || (cur.notes.length > 0 ? cur.notes[cur.notes.length - 1].t + 3 : 180)
   const songName = info._songName || mapData.songName || '未知歌曲'
   const songAuthor = info._songAuthorName || mapData.songAuthor || ''
-  const diffLabel = diffLabels[chosenName] || chosenName?.toUpperCase() || 'Hard'
+  const diffList = DIFF_RANK.filter(k => diffs[k]).map(k => ({ key: k, label: diffs[k].label }))
+  for (const k of Object.keys(diffs)) {
+    if (!DIFF_RANK.includes(k)) diffList.push({ key: k, label: diffs[k].label })
+  }
 
   const blob = new Blob([audioBuffer], { type: 'audio/ogg' })
   const url = URL.createObjectURL(blob)
@@ -388,10 +300,11 @@ async function parseZipManually(data: Uint8Array, mapData: any, coverBlob?: Blob
     id: 'bs_' + mapData.id,
     name: songName,
     en: songAuthor,
-    style: `BeatSaver · ${diffLabel}`,
+    style: `BeatSaver · ${cur.label}`,
     desc: `谱师: ${mapData.levelAuthor || '未知'} · BPM: ${Math.round(bpm)}`,
     bpm: Math.round(bpm),
-    diff: diffLabel,
+    diff: cur.label,
+    diffList,
     env: THEME_ENV[mapData.id] || 'official',
     speed: 19,
     colorL, colorR,
@@ -401,13 +314,111 @@ async function parseZipManually(data: Uint8Array, mapData: any, coverBlob?: Blob
     audioUrl: url,
     internal: {
       events: [],
-      notes, walls, lights, arcs,
+      diffs, currentDiff,
       duration: duration || 180,
       bpm: Math.round(bpm), spb,
       buffer: audioBuffer,
     },
-    build() { return (this as any).internal },
+    build() {
+      const it: any = (this as any).internal
+      const d = it.diffs?.[it.currentDiff] || (it.diffs && Object.values(it.diffs)[0])
+      return d ? { ...it, notes: d.notes, walls: d.walls, lights: d.lights, arcs: d.arcs } : it
+    },
   }
+}
+
+/** Parse one difficulty chart (v2 or v3) into playable data. Times converted to seconds. */
+function parseChart(chart: any, spb: number) {
+  const notes: NoteData[] = [], walls: any[] = [], arcs: ArcData[] = []
+  if (chart.colorNotes || chart.bombNotes) {
+    // v3 format
+    for (const n of chart.colorNotes || []) {
+      notes.push({ t: n.b, x: n.x, y: n.y, type: n.c, dir: n.d, color: chromaHex(n.customData?.color) })
+    }
+    for (const n of chart.bombNotes || []) {
+      notes.push({ t: n.b, x: n.x, y: n.y, type: 3, dir: 8 })
+    }
+    // Arcs (sliders): visual guides between two notes
+    if (Array.isArray(chart.sliders)) {
+      for (const s of chart.sliders) {
+        const x1 = clampIdx(s.x, 3), y1 = clampIdx(s.y, 2)
+        const x2 = clampIdx(s.tx, 3), y2 = clampIdx(s.ty, 2)
+        arcs.push({
+          t: s.b, tb: s.tb, c: s.c,
+          x1: LANE_X[x1], y1: ROW_Y[y1], d1: s.d ?? 8, mu: s.mu ?? 1,
+          x2: LANE_X[x2], y2: ROW_Y[y2], d2: s.tc ?? 8, tmu: s.tmu ?? 1,
+        })
+      }
+    }
+    // Chains (burstSliders): head note stays a colorNote; add sc-1 link pads along the path
+    if (Array.isArray(chart.burstSliders)) {
+      for (const s of chart.burstSliders) {
+        const sc = Math.max(2, s.sc | 0)
+        const squish = s.s > 0 ? s.s : 1
+        const hx = LANE_X[clampIdx(s.x, 3)], hy = ROW_Y[clampIdx(s.y, 2)]
+        const tx = LANE_X[clampIdx(s.tx, 3)], ty = ROW_Y[clampIdx(s.ty, 2)]
+        const dv = DIR_VEC[s.d === 8 || s.d == null ? 8 : s.d]
+        const dist = Math.hypot(tx - hx, ty - hy)
+        const cx = hx + dv[0] * dist * 0.5
+        const cy = hy + dv[1] * dist * 0.5
+        for (let i = 1; i < sc; i++) {
+          const f = (i / (sc - 1)) * squish
+          const u = 1 - f
+          const wx = u * u * hx + 2 * u * f * cx + f * f * tx
+          const wy = u * u * hy + 2 * u * f * cy + f * f * ty
+          notes.push({
+            t: s.b + (s.tb - s.b) * f,
+            x: clampIdx(s.tx, 3), y: clampIdx(s.ty, 2),
+            type: s.c, dir: 8, link: true, wx, wy,
+          } as NoteData)
+        }
+      }
+    }
+    const LX = [-0.9, -0.3, 0.3, 0.9]
+    for (const o of chart.obstacles || []) {
+      const li = Math.max(0, Math.min(3, o.x || 0))
+      const ww = Math.max(1, Math.min(4, o.w || 1))
+      const endIdx = Math.min(3, li + ww - 1)
+      const startX = LX[li], endX = LX[endIdx]
+      walls.push({
+        t: o.b, dur: o.d,
+        side: (startX + endX) / 2 / 0.58,
+        width: ww, type: o.h === 1 ? 1 : 0,
+        wallScale: (endX - startX + 0.6) / 1.15,
+        crouch: o.h === 1,
+        color: chromaHex(o.customData?.color),
+      })
+    }
+  } else if (chart._notes) {
+    // v2 format — skip Noodle Extensions fake notes/walls (decorative, not cuttable)
+    for (const n of chart._notes) {
+      if (n._customData?._fake) continue
+      notes.push({ t: n._time, x: n._lineIndex, y: n._lineLayer, type: n._type, dir: n._cutDirection, color: chromaHex(n._customData?._color) })
+    }
+    const LX = [-0.9, -0.3, 0.3, 0.9]
+    for (const o of chart._obstacles || []) {
+      if (o._customData?._fake) continue
+      const li = Math.max(0, Math.min(3, o._lineIndex || 0))
+      const ww = Math.max(1, Math.min(4, o._width || 1))
+      const endIdx = Math.min(3, li + ww - 1)
+      const startX = LX[li], endX = LX[endIdx]
+      walls.push({
+        t: o._time, dur: o._duration,
+        side: (startX + endX) / 2 / 0.58,
+        width: ww, type: o._type,
+        wallScale: (endX - startX + 0.6) / 1.15,
+        crouch: o._type === 1,
+        color: chromaHex(o._customData?._color),
+      })
+    }
+  }
+  for (const n of notes) n.t = n.t * spb
+  for (const w of walls) w.t = w.t * spb
+  for (const a of arcs) { a.t = a.t * spb; a.tb = a.tb * spb }
+  notes.sort((a, b) => a.t - b.t)
+  arcs.sort((a, b) => a.t - b.t)
+  const lights = parseLightEvents(chart, spb)
+  return { notes, walls, arcs, lights, label: '' }
 }
 
 function clampIdx(v: number, max: number): number {

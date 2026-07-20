@@ -61,10 +61,13 @@ export interface LightEvent {
 /** Everything a song's build() returns — the playable chart. */
 export interface SongData {
   events: any[]
-  notes: NoteData[]
-  walls: WallData[]
+  notes?: NoteData[]
+  walls?: WallData[]
   lights?: LightEvent[]
   arcs?: ArcData[]
+  /** multi-difficulty storage: key → chart; build() merges diffs[currentDiff] */
+  diffs?: Record<string, any>
+  currentDiff?: string
   duration: number
   bpm: number
   spb: number
@@ -93,6 +96,8 @@ export interface Song {
   custom?: boolean
   /** bundled with the app; not deletable */
   builtin?: boolean
+  /** selectable difficulties (ordered easy→expert+) */
+  diffList?: { key: string, label: string }[]
   internal?: SongData
   build(): SongData
 }
