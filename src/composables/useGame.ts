@@ -148,6 +148,13 @@ export function useGame() {
     })
 
     checkXRSupport()
+    // First user gesture unlocks audio → start menu music
+    const unlockAudio = () => {
+      window.removeEventListener('pointerdown', unlockAudio)
+      ensureAudio()
+      if (state.value === 'menu') synth.startMenuMusic()
+    }
+    window.addEventListener('pointerdown', unlockAudio)
     // Bundled default maps first, then saved BeatSaver maps from IndexedDB (deduped by id)
     loadBuiltinMap('4f454', '/builtin/4f454.zip').then(song => {
       if (!SONGS.find(existing => existing.id === song.id)) {
@@ -347,6 +354,18 @@ export function useGame() {
     scene.remove(note.g)
   }
 
+  // Controller haptics (official-style: short strong pulse on good cut, harsher on errors)
+  function haptic(hand, intensity, ms) {
+    if (!XR.active || !XR.session) return
+    const h = hand === 'L' ? 'left' : hand === 'R' ? 'right' : hand
+    for (const src of XR.session.inputSources) {
+      if (src.handedness !== h) continue
+      const gp: any = src.gamepad
+      const act = gp?.hapticActuators?.[0]
+      try { act?.pulse?.(intensity, ms) } catch (e) { /* some runtimes lack pulse */ }
+    }
+  }
+
   function goodCut(note, saber, dist) {
     const sp = saber.speed
     const pts = Math.round(70 + Math.min(30, sp * 3.4) + Math.max(0, 1 - dist / CUT_RADIUS) * 15)
@@ -364,6 +383,7 @@ export function useGame() {
     const hitPan = saber.hand === 'L' ? -0.4 : 0.4
     if (note.d.t >= G.lastNoteT - 0.001) synth.sfxLastHit(hitPan)
     else synth.sfxHit(hitPan, 0.85, 0.97 + Math.random() * 0.06)
+    haptic(saber.hand, 0.75, 70)
     G.shake = Math.min(0.5, G.shake + 0.12)
     removeNote(note)
     updateHUD()
@@ -379,6 +399,7 @@ export function useGame() {
     G.halves.forEach(h => scene.add(h.m))
     spawnText(note.g.position, '×', '#ff5566')
     synth.sfxBad()
+    haptic(saber.hand, 1.0, 160)
     removeNote(note)
     updateHUD()
   }
@@ -399,6 +420,7 @@ export function useGame() {
     addEnergy(0.004)
     spawnBurst(note.g.position, saber.color, 8, 0.09, 3.5)
     synth.sfxHit(saber.hand === 'L' ? -0.4 : 0.4, 0.4, 1.1 + Math.random() * 0.08, true)
+    haptic(saber.hand, 0.4, 45)
     removeNote(note)
     updateHUD()
   }
@@ -421,11 +443,12 @@ export function useGame() {
     updateHUD()
   }
 
-  function bombHit(note) {
+  function bombHit(note, saber) {
     breakCombo()
     addEnergy(-0.15)
     spawnBurst(note.g.position, 0xff3300, 22, 0.16, 7)
     synth.sfxBomb()
+    if (saber) haptic(saber.hand, 1.0, 250)
     G.shake = 0.8
     removeNote(note)
     updateHUD()
@@ -454,7 +477,7 @@ export function useGame() {
           )
         }
         if (note.d.type === 3) {
-          if (!auto.value && d < 0.42) bombHit(note)
+          if (!auto.value && d < 0.42) bombHit(note, saber)
           continue
         }
         if (note.d.link) {
@@ -517,6 +540,7 @@ export function useGame() {
       console.error('[startSong] AudioContext not available:', synth?.ctx?.state)
       return
     }
+    synth.stopMenuMusic()
     songIdx.value = idx
     meta.value = { ...SONGS[idx] }
     G.song = SONGS[idx].build()
@@ -640,10 +664,13 @@ export function useGame() {
     if (XR.active) {
       state.value = 'vrmenu'
       _vrFirstMenuFrame = true
-      _vrTriggerDown = { left: false, right: false }
+      // Guard against click-through from the panel button that opened the menu
+      _vrTriggerDown = { left: true, right: true }
+      _vrMenuCooldown = 0.6
     } else {
       state.value = 'menu'
     }
+    if (synth) synth.startMenuMusic()
   }
 
   function failSong() {
@@ -690,6 +717,30 @@ export function useGame() {
   function toggleAuto() {
     auto.value = !auto.value
     if (synth) synth.sfxClick()
+  }
+
+  // Ambient official stage behind the desktop menu (official colors, slow lasers)
+  function ensureMenuEnv() {
+    if (env || !scene) return
+    env = createEnv('official', scene, 0xff2b2b, 0x2b9eff)
+    env.hasLightEvents = true // don't run the beat-driven show; we set a static mood
+    env.onLightEvent({ t: 0, type: 0, value: 1, f: 0.5 })   // back lasers dim red-blue
+    env.onLightEvent({ t: 0, type: 2, value: 5, f: 0.55 })  // left lasers red
+    env.onLightEvent({ t: 0, type: 3, value: 1, f: 0.55 })  // right lasers blue
+    env.onLightEvent({ t: 0, type: 1, value: 9, f: 0.35 })  // rings faint white
+    env.onLightEvent({ t: 0, type: 12, value: 1, f: 1 })
+    env.onLightEvent({ t: 0, type: 13, value: 1, f: 1 })
+  }
+
+  // ========== UI sounds (DOM menu hooks) ==========
+  function uiClick() {
+    ensureAudio()
+    synth.sfxClick()
+    if (state.value === 'menu') synth.startMenuMusic()
+  }
+
+  function uiHover() {
+    if (synth) synth.sfxHover()
   }
 
   function toggleInvincible() {
@@ -794,6 +845,13 @@ export function useGame() {
     }
 
     if (state.value === 'menu' && !XR.active) {
+      // Official-style menu backdrop: render the stage with ambient lighting
+      if (!env) ensureMenuEnv()
+      if (env) env.update(dt, time)
+      camera.position.set(0, 1.7, 0)
+      camera.rotation.z = 0
+      if (composer) composer.render()
+      else renderer.render(scene, camera)
       scheduleFrame()
       return
     }
@@ -1153,6 +1211,9 @@ export function useGame() {
   let _menuSaberL = null
   let _menuSaberR = null
   let _vrTriggerDown = { left: false, right: false }
+  let _vrMenuCooldown = 0
+  let _vrLastHovered = -1
+  let _vrPanelLastHovered = -1
   let _vrTriggerLogCount = 0
   let _vrLaserLogCount = 0
   let _vrTriggerDownPrev = { left: false, right: false }
@@ -1315,6 +1376,7 @@ export function useGame() {
   let _vrPollNoUpdate = false
 
   function updateVRMenu(dt) {
+    if (_vrMenuCooldown > 0) _vrMenuCooldown -= dt
     if (!vrMenuOrigin) buildVRMenu()
     if (!_ctrlObj['left'] && !_ctrlObj['right']) {
       if (!_vrNoCtrlLogged) {
@@ -1389,6 +1451,11 @@ export function useGame() {
       }
     }
     
+    if (hovered !== _vrLastHovered) {
+      if (hovered >= 0 && synth) synth.sfxHover()
+      _vrLastHovered = hovered
+    }
+
     // Debug laser hit periodically
     if (!_vrLaserLogCount) _vrLaserLogCount = 0
     _vrLaserLogCount++
@@ -1457,9 +1524,10 @@ export function useGame() {
         }
         log('other-buttons', { hand, active })
       }
-      if (triggerPressed && !_vrTriggerDown[hand] && hovered >= 0) {
+      if (triggerPressed && !_vrTriggerDown[hand] && hovered >= 0 && _vrMenuCooldown <= 0) {
         _vrTriggerDown[hand] = true
         log('trigger-select', { hovered, song: SONGS[hovered].name, hand })
+        if (synth) synth.sfxClick()
         startSong(hovered)
         cleanupVRMenu()
         return
@@ -1602,6 +1670,10 @@ export function useGame() {
       laser.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir)
       if (closestHit >= 0) { vrPanelItems[closestHit].scale.setScalar(1.12); hovered = closestHit }
     }
+    if (hovered !== _vrPanelLastHovered) {
+      if (hovered >= 0 && synth) synth.sfxHover()
+      _vrPanelLastHovered = hovered
+    }
     if (!XR.session) return
     for (const src of XR.session.inputSources) {
       const hand = src.handedness
@@ -1619,6 +1691,7 @@ export function useGame() {
       if (pressed && !_vrPanelTriggerDown[hand] && hovered >= 0 && _vrPanelCooldown <= 0) {
         _vrPanelTriggerDown[hand] = true
         log('vr-panel-click', { state: vrPanelState, hovered })
+        if (synth) synth.sfxClick()
         vrPanelItems[hovered].userData.act()
         return
       }
@@ -1673,6 +1746,7 @@ export function useGame() {
         env = createEnv(firstSong.env, scene, firstSong.colorL, firstSong.colorR)
         state.value = 'vrmenu'
       }
+      if (ensureAudio() && state.value === 'vrmenu') synth.startMenuMusic()
 
       session.addEventListener('end', onXRSessionEnd)
     } catch (e) {
@@ -1699,5 +1773,6 @@ export function useGame() {
     init, startSong, pauseSong, resumeSong, quitToMenu, failSong,
     onMouseMove, onKeyDown, onKeyUp, toggleAuto, toggleInvincible,
     handleMusicFile, searchSong, downloadSong, deleteDownloadedSong, enterVR, dumpLog, dispose,
+    uiClick, uiHover,
   }
 }

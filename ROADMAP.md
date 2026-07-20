@@ -129,3 +129,11 @@
 | BeatLeader API | 社区排行 | https://api.beatleader.com |
 | Three.js | 3D 引擎 | https://threejs.org/ |
 | WebXR Spec | VR 标准 | https://immersiveweb.dev/ |
+
+### 8. 官方化菜单/交互批次(2026-07-20)
+- [x] 手柄震动:好切 0.75/70ms、坏切 1.0/160ms、炸弹 1.0/250ms、链节 0.4/45ms(WebXR hapticActuators)
+- [x] 桌面选歌重做官方列表式:左侧可滚动歌单(封面缩略图+曲名+作者+BPM)+ 右侧详情面板(大封面/信息 chips/开始按钮);竖屏纵向布局,列表是唯一滚动容器,零页面溢出
+- [x] 官方双色 Logo(BEAT 红 / SABER 蓝辉光斜体)+ 菜单背景实时渲染官方舞台灯光(半透明 overlay 透出)
+- [x] UI 音效:卡片/按钮 hover 微音 + click 音(桌面 DOM + VR 菜单 + VR 面板)
+- [x] 菜单背景音乐:/sfx/menu.ogg 存在则循环播放(官方原曲自备放入即生效),否则合成氛围垫乐;首次交互解锁,开打淡出
+- [x] VR 暂停/结算面板与选歌菜单互斥修复:进菜单需扳机先松开 + 0.6s 冷却,杜绝点穿误触

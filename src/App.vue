@@ -1,11 +1,27 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, provide } from 'vue'
+import { ref, watch, onMounted, onUnmounted, provide } from 'vue'
 import { useGame } from './composables/useGame'
 
 const game = useGame()
 provide('game', game)
 
 const canvasRef = ref(null)
+
+// Song selection (official-style list + detail panel)
+const selectedIdx = ref(0)
+watch(game.songListVersion, () => {
+  if (selectedIdx.value >= game.SONGS.length) selectedIdx.value = 0
+})
+
+function selectSong(i) {
+  game.uiClick()
+  selectedIdx.value = i
+}
+
+function playSelected() {
+  game.uiClick()
+  if (game.SONGS[selectedIdx.value]) game.startSong(selectedIdx.value)
+}
 const uploadStatus = ref('CLICK OR DROP AUDIO FILE (MP3 / WAV / M4A…)  ·  AUTO ANALYZE BEAT & MOOD')
 const uploadErr = ref(false)
 const uploadBusy = ref(false)
@@ -43,6 +59,7 @@ async function doDownload(result) {
     const { idx } = await game.downloadSong(result)
     bsDownloading.value = ''
     bsResults.value = []; bsShowSearch.value = false; bsQuery.value = ''
+    if (idx != null && idx >= 0) selectedIdx.value = idx
   } catch (e) { bsError.value = 'Download failed: ' + e.message; bsDownloading.value = '' }
 }
 
@@ -135,100 +152,114 @@ onUnmounted(() => {
     class="overlay"
     :class="{ hidden: game.state.value !== 'menu' }"
   >
-    <div id="logo-area">
-      <div id="logo-icon"></div>
-      <div id="logo-text">BEAT SABER</div>
-    </div>
+    <!-- Left: song list -->
+    <aside id="song-panel">
+      <div id="panel-logo">
+        <div class="logo-bars"></div>
+        <div class="logo-text"><span class="logo-beat">BEAT</span><span class="logo-saber">SABER</span></div>
+      </div>
 
-    <div id="song-carousel" :key="game.songListVersion.value">
-      <div
-        v-for="(song, i) in game.SONGS.slice(0, 6)"
-        :key="i"
-        class="song-card"
-        @click="game.startSong(i)"
-      >
-        <div class="cover">
-          <div class="cover-bg" :style="{ background: song.cardBg }"></div>
-          <div class="cover-overlay"></div>
+      <div id="song-list" :key="game.songListVersion.value">
+        <div
+          v-for="(song, i) in game.SONGS"
+          :key="i"
+          class="song-row"
+          :class="{ sel: i === selectedIdx }"
+          @click="selectSong(i)"
+          @mouseenter="game.uiHover()"
+        >
+          <div class="row-cover" :style="{ background: song.cardBg }"></div>
+          <div class="row-info">
+            <div class="row-name">{{ song.name }}</div>
+            <div class="row-sub">{{ song.en }} · {{ song.diff }}</div>
+          </div>
+          <div class="row-bpm">{{ song.bpm }}<span> BPM</span></div>
           <div
             v-if="song.id && song.id.startsWith('bs_') && !song.builtin"
             class="song-delete"
-            @click.stop="game.deleteDownloadedSong(i)"
+            @click.stop="game.uiClick(); game.deleteDownloadedSong(i)"
             title="Delete map"
           >×</div>
         </div>
-        <div class="info">
-          <div class="song-name">{{ song.name }}</div>
-          <div class="song-en">{{ song.en }}</div>
-          <div class="song-meta">
-            <span class="song-bpm">{{ song.bpm }} BPM</span>
-            <span class="song-diff" :style="{ color: '#' + song.colorR.toString(16).padStart(6, '0') }">{{ song.diff }}</span>
+      </div>
+    </aside>
+
+    <!-- Right: song detail -->
+    <section id="detail-panel" v-if="game.SONGS[selectedIdx]">
+      <div class="detail-main">
+        <div class="detail-cover" :style="{ background: game.SONGS[selectedIdx].cardBg }"></div>
+        <div class="detail-info">
+          <div class="detail-name">{{ game.SONGS[selectedIdx].name }}</div>
+          <div class="detail-en">{{ game.SONGS[selectedIdx].en }}</div>
+          <div class="detail-chips">
+            <span class="chip">{{ game.SONGS[selectedIdx].bpm }} BPM</span>
+            <span class="chip chip-diff">{{ game.SONGS[selectedIdx].diff }}</span>
+            <span class="chip">{{ game.SONGS[selectedIdx].style }}</span>
+            <span class="chip chip-desc">{{ game.SONGS[selectedIdx].desc }}</span>
           </div>
+          <div
+            class="play-btn"
+            @click="playSelected()"
+            @mouseenter="game.uiHover()"
+          >开始 · PLAY</div>
         </div>
       </div>
 
-      <!-- Upload card -->
-      <div
-        class="song-card upload-card"
-        @click="uploadBusy ? null : $refs.fileInput.click()"
-      >
-        <div class="cover">
-          <div class="cover-bg">
-            <div class="upload-icon">+</div>
-          </div>
-          <div class="cover-overlay"></div>
+      <div class="detail-toggles">
+        <div
+          id="auto-toggle"
+          :class="{ on: game.auto.value }"
+          @click="game.uiClick(); game.toggleAuto()"
+          @mouseenter="game.uiHover()"
+        >
+          <span class="sw"></span>
+          DEMO MODE · 自动演示
         </div>
-        <div class="info">
-          <div class="song-name">IMPORT</div>
-          <div class="song-en">AUTO MAP</div>
-          <div class="song-meta">
-            <span class="song-bpm">LOCAL FILE</span>
-            <span class="song-diff" style="color: #ffd76e;">AUTO</span>
-          </div>
+        <div
+          id="auto-toggle"
+          :class="{ on: game.invincible.value }"
+          @click="game.uiClick(); game.toggleInvincible()"
+          @mouseenter="game.uiHover()"
+        >
+          <span class="sw"></span>
+          NO FAIL · 血量清空不失败但扣 50% 分数
         </div>
-        <div class="upload-status" :style="{ color: uploadErr ? '#ff6677' : '#7b84ab' }">{{ uploadStatus }}</div>
+      </div>
+
+      <div class="detail-actions">
+        <div
+          class="vr-btn"
+          :class="{ 'vr-off': !game.xrSupported.value }"
+          @click="game.uiClick(); game.enterVR()"
+          @mouseenter="game.uiHover()"
+          :style="{ cursor: game.xrSupported.value ? 'pointer' : 'default' }"
+        >
+          {{ game.xrSupported.value ? 'ENTER VR' : 'VR UNAVAILABLE' }}
+        </div>
+        <div
+          class="vr-btn"
+          @click="game.uiClick(); uploadBusy ? null : $refs.fileInput.click()"
+          @mouseenter="game.uiHover()"
+        >
+          IMPORT · 导入音乐
+        </div>
+        <div
+          class="vr-btn bs-open-btn"
+          @click="game.uiClick(); bsShowSearch = true"
+          @mouseenter="game.uiHover()"
+        >
+          BEATSAVER · 社区谱面搜索
+        </div>
       </div>
       <input ref="fileInput" type="file" accept="audio/*,.mp3,.wav,.m4a,.ogg,.flac,.aac" style="display:none" @change="onFileSelect" />
-    </div>
 
-    <div id="menu-footer">
-      <div
-        id="auto-toggle"
-        :class="{ on: game.auto.value }"
-        @click="game.toggleAuto()"
-      >
-        <span class="sw"></span>
-        DEMO MODE · 自动演示
-      </div>
-      <div
-        id="auto-toggle"
-        :class="{ on: game.invincible.value }"
-        @click="game.toggleInvincible()"
-        style="margin-top:0"
-      >
-        <span class="sw"></span>
-        NO FAIL · 血量清空不失败但扣 50% 分数
-      </div>
-      <div
-        class="vr-btn"
-        :class="{ 'vr-off': !game.xrSupported.value }"
-        @click="game.enterVR()"
-        :style="{ cursor: game.xrSupported.value ? 'pointer' : 'default' }"
-      >
-        {{ game.xrSupported.value ? 'ENTER VR' : 'VR UNAVAILABLE' }}
-      </div>
+      <div class="upload-status" :style="{ color: uploadErr ? '#ff6677' : '#7b84ab' }">{{ uploadStatus }}</div>
+
       <div id="controls-hint">
         <b>DESKTOP</b> — Mouse swing sabers · <b>A / D</b> dodge walls · <b>ESC</b> pause<br />
         <b>VR</b> — HTTPS required · Left red · Right blue · Trigger select · Grip pause
       </div>
-      <div
-        class="vr-btn"
-        style="margin-top: 12px; background: linear-gradient(90deg, rgba(127,220,255,0.1), rgba(255,110,199,0.1)); border-color: rgba(127,220,255,0.5);"
-        @click="bsShowSearch = true"
-      >
-        BEATSAVER · 社区谱面搜索
-      </div>
-    </div>
+    </section>
   </div>
 
   <!-- BeatSaver search card -->
