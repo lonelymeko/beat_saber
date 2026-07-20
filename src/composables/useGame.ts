@@ -4,21 +4,21 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
-import { Synth, MusicPlayer } from '../audio/Synth.js'
-import { SONGS } from '../audio/songs.js'
-import { searchBeatSaver, downloadBeatMap } from '../audio/beatsaver.js'
-import { saveMap, loadAllMaps, deleteMap } from '../audio/storage.js'
-import { analyzeAudioBuffer } from '../audio/analyzer.js'
-import { initTextures, makeEnvMap } from '../game/Textures.js'
-import { Saber } from '../game/Saber.js'
-import { VRHUD } from '../game/vrHUD.js'
-import { createNoteMesh, createWallMesh, createHalves, createBurst, createFloatingText, setGeometries } from '../game/Note.js'
-import { createEnv } from '../env/index.js'
-import { log, dumpLog, startLog } from './vrlog.js'
+import { Synth, MusicPlayer } from '../audio/Synth'
+import { SONGS } from '../audio/songs'
+import { searchBeatSaver, downloadBeatMap } from '../audio/beatsaver'
+import { saveMap, loadAllMaps, deleteMap } from '../audio/storage'
+import { analyzeAudioBuffer } from '../audio/analyzer'
+import { initTextures, makeEnvMap } from '../game/Textures'
+import { Saber } from '../game/Saber'
+import { VRHUD } from '../game/vrHUD'
+import { createNoteMesh, createWallMesh, createHalves, createBurst, createFloatingText, setGeometries } from '../game/Note'
+import { createEnv } from '../env/index'
+import { log, dumpLog, startLog } from './vrlog'
 import {
   LANE_X, ROW_Y, SABER_Z, SPAWN_DIST, MISS_Z,
   CUT_WINDOW, CUT_RADIUS, MIN_SPEED, DIR_VEC, NEED, MULT, RING_C,
-} from '../game/constants.js'
+} from '../game/constants'
 
 export function useGame() {
   // ========== State ==========
@@ -62,9 +62,9 @@ export function useGame() {
   let matL, matR
 
   // ========== Game State ==========
-  let G = {
+  let G: any = {
     startAt: 0, t: -10, lastBeat: -1, lastCount: 99,
-    noteIdx: 0, wallIdx: 0,
+    noteIdx: 0, wallIdx: 0, lightIdx: 0,
     notes: [], walls: [], halves: [], bursts: [], texts: [],
     com: 0, jud: 0, hits: 0,
     level: 0, prog: 0, en: 0.5,
@@ -149,7 +149,7 @@ export function useGame() {
 
     checkXRSupport()
     // Load saved BeatSaver maps from IndexedDB
-    loadAllMaps().then(saved => {
+    loadAllMaps().then((saved: any[]) => {
       for (const s of saved) {
         if (!SONGS.find(existing => existing.id === s.id)) {
           SONGS.push(s)
@@ -457,6 +457,7 @@ export function useGame() {
 
     if (env) env.dispose()
     env = createEnv(meta.value.env, scene, meta.value.colorL, meta.value.colorR)
+    env.hasLightEvents = (G.song.lights?.length || 0) > 0
 
     if (saberL) saberL.dispose()
     if (saberR) saberR.dispose()
@@ -489,6 +490,7 @@ export function useGame() {
     G.en = 0.5
     G.noteIdx = 0
     G.wallIdx = 0
+    G.lightIdx = 0
     G.lastBeat = -1
     G.lastCount = 99
     G.lean = 0
@@ -521,7 +523,7 @@ export function useGame() {
 
     player.load(G.song.events)
     const rawBuf = G.song.buffer
-    if (rawBuf && (rawBuf instanceof Uint8Array || (rawBuf instanceof ArrayBuffer && !rawBuf.sampleRate))) {
+    if (rawBuf && (rawBuf instanceof Uint8Array || (rawBuf instanceof ArrayBuffer && !(rawBuf as any).sampleRate))) {
       G.startAt = synth.ctx.currentTime + 3.6
       const ab = rawBuf instanceof Uint8Array ? rawBuf.buffer.slice(rawBuf.byteOffset, rawBuf.byteOffset + rawBuf.byteLength) : rawBuf
       synth.ctx.decodeAudioData(ab, (decoded) => {
@@ -631,7 +633,7 @@ export function useGame() {
       const buf = await synth.ctx.decodeAudioData(arr)
       if (buf.duration < 20) throw new Error('音频太短，至少需要 20 秒')
       if (buf.duration > 600) throw new Error('音频太长，请控制在 10 分钟内')
-      const res = await analyzeAudioBuffer(buf)
+      const res = await (analyzeAudioBuffer as any)(buf)
       if (res.notes.length < 10) throw new Error('节拍太弱，无法生成有效谱面')
 
       const envRef = SONGS.find(s => s.env === res.mood)
@@ -673,7 +675,7 @@ export function useGame() {
     const song = await downloadBeatMap(mapData, (stage, pct) => {
       downloadProgress.value = { stage, pct }
     })
-    SONGS.push(song)
+    SONGS.push(song as any)
     songListVersion.value++
     saveMap(song.id, song).catch(e => console.error('saveMap failed:', e))
     downloadProgress.value = { stage: 'done', pct: 100 }
@@ -792,6 +794,12 @@ export function useGame() {
       if (t >= 0 && G.song.spb) {
         const beat = Math.floor((t - (G.song.beatOffset || 0)) / G.song.spb)
         if (beat !== G.lastBeat) { G.lastBeat = beat; if (env) env.onBeat(beat) }
+      }
+
+      // Lighting events
+      const le = G.song.lights
+      if (le && le.length && env) {
+        while (G.lightIdx < le.length && le[G.lightIdx].t <= t) env.onLightEvent(le[G.lightIdx++])
       }
 
       // Spawn

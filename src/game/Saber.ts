@@ -1,8 +1,31 @@
 import * as THREE from 'three'
-import { Trail } from './Trail.js'
-import { SABER_Z } from './constants.js'
+import { Trail } from './Trail'
+import { SABER_Z } from './constants'
 
 export class Saber {
+  hand: string
+  color: number
+  style: string
+  pos: THREE.Vector3
+  prev: THREE.Vector3
+  vel: THREE.Vector3
+  speed: number
+  rx: number
+  rz: number
+  tassel: THREE.Mesh
+  glow1: THREE.Mesh<THREE.CylinderGeometry, THREE.MeshBasicMaterial>
+  glow2: THREE.Mesh<THREE.CylinderGeometry, THREE.MeshBasicMaterial>
+  dust: THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial>
+  light: THREE.PointLight
+  group: THREE.Group
+  trail: Trail
+  tipV: THREE.Vector3
+  baseV: THREE.Vector3
+  prevTipV: THREE.Vector3
+  prevBaseV: THREE.Vector3
+  _vrInit: boolean
+  _vrLogCount: number
+
   constructor(hand, color, style, textures) {
     this.hand = hand
     this.color = color
@@ -219,7 +242,7 @@ export class Saber {
   dispose() {
     if (this.group.parent) this.group.parent.remove(this.group)
     if (this.trail.mesh.parent) this.trail.mesh.parent.remove(this.trail.mesh)
-    this.group.traverse((o) => {
+    this.group.traverse((o: any) => {
       if (o.geometry) o.geometry.dispose()
       if (o.material) o.material.dispose()
     })

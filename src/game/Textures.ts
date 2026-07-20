@@ -86,9 +86,6 @@ export function initTextures() {
       map: dotTex, transparent: true, opacity: 0.5,
       blending: THREE.AdditiveBlending, depthWrite: false,
     }),
-    glowTex,
-    sparkTex,
-    hotTex,
   }
   return cached
 }

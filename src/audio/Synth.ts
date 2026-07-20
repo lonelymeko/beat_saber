@@ -1,8 +1,14 @@
 const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12)
 
 export class Synth {
+  ctx: AudioContext
+  comp: DynamicsCompressorNode
+  music: GainNode
+  sfx: GainNode
+  noiseBuf: AudioBuffer
+
   constructor() {
-    const AC = window.AudioContext || window.webkitAudioContext
+    const AC = window.AudioContext || (window as any).webkitAudioContext
     this.ctx = new AC()
     this.comp = this.ctx.createDynamicsCompressor()
     this.comp.threshold.value = -14
@@ -390,6 +396,14 @@ export class Synth {
 }
 
 export class MusicPlayer {
+  synth: Synth
+  timer: any
+  events: any[]
+  idx: number
+  startTime: number
+  buffer: AudioBuffer | null
+  src: AudioBufferSourceNode | null
+
   constructor(synth) {
     this.synth = synth
     this.timer = null

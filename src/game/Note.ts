@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { LANE_X, ROW_Y, SPAWN_DIST, DIR_ROT } from './constants.js'
+import { LANE_X, ROW_Y, SPAWN_DIST, DIR_ROT } from './constants'
 
 let noteGeo, arrowGeo, faceGlowGeo, bombGeo, halfGeo, hotGeo, wallMat
 

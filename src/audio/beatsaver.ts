@@ -1,7 +1,9 @@
 // BeatSaver API client + beatmap zip parser
+import type { LightEvent, Song, BeatSaverMapInfo } from '../types'
+
 const API = 'https://api.beatsaver.com'
 
-export async function searchBeatSaver(query, page = 0) {
+export async function searchBeatSaver(query: string, page = 0): Promise<BeatSaverMapInfo[]> {
   const q = encodeURIComponent(query)
   const url = `${API}/search/text/${page}?q=${q}&sortOrder=Latest`
   const res = await fetch(url)
@@ -105,7 +107,7 @@ export async function downloadBeatMap(mapData, onProgress) {
   return parseBeatMapZip(buffer, mapData, coverBlob)
 }
 
-async function parseBeatMapZip(buffer, mapData) {
+async function parseBeatMapZip(buffer: Uint8Array, mapData: any, coverBlob?: Blob | null): Promise<Song> {
   // Use browser's built-in DecompressionStream
   const ds = new DecompressionStream('deflate-raw')
   const writer = ds.writable.getWriter()
@@ -130,7 +132,7 @@ async function parseBeatMapZip(buffer, mapData) {
 }
 
 // Manual ZIP parser with async inflate support
-async function parseZipManually(data, mapData, coverBlob) {
+async function parseZipManually(data: Uint8Array, mapData: any, coverBlob?: Blob | null): Promise<Song> {
   const decoder = new TextDecoder('utf-8')
 
   let eocdOffset = -1
@@ -271,6 +273,9 @@ async function parseZipManually(data, mapData, coverBlob) {
   for (const n of notes) n.t = n.t * spb
   for (const w of walls) w.t = w.t * spb
 
+  const lights = chosenDiff ? parseLightEvents(chosenDiff, spb) : []
+  console.log('[ZIP-LIGHTS]', lights.length, 'events')
+
   const duration = mapData.duration || (notes.length > 0 ? notes[notes.length - 1].t + 3 : 180)
   const songName = info._songName || mapData.songName || '未知歌曲'
   const songAuthor = info._songAuthorName || mapData.songAuthor || ''
@@ -287,21 +292,93 @@ async function parseZipManually(data, mapData, coverBlob) {
     desc: `谱师: ${mapData.levelAuthor || '未知'} · BPM: ${Math.round(bpm)}`,
     bpm: Math.round(bpm),
     diff: diffLabel,
-    env: 'neon',
+    env: 'official',
     speed: 19,
-    colorL: 0xff2bd0, colorR: 0x00e5ff,
+    colorL: 0xff2b2b, colorR: 0x2b9eff,
     cardBg: coverBlob ? `url(${URL.createObjectURL(coverBlob)}) center/cover no-repeat` : 'linear-gradient(160deg,#2b0a3d,#0e1445 55%,#032c3f)',
     coverBlob,
     audioUrl: url,
     internal: {
       events: [],
-      notes, walls,
+      notes, walls, lights,
       duration: duration || 180,
       bpm: Math.round(bpm), spb,
       buffer: audioBuffer,
     },
-    build() { return this.internal },
+    build() { return (this as any).internal },
   }
+}
+
+// ===== Lighting events =====
+// Normalized event: { t: seconds, type, value, f: floatValue }
+// Types: 0=back lasers, 1=ring lights, 2=left lasers, 3=right lasers, 4=center lights,
+//        5=color boost, 8=ring spin, 9=ring zoom, 12=left laser speed, 13=right laser speed
+// Values: 0=off; 1-4=right(blue) on/flash/fade/transition; 5-8=left(red); 9-12=white
+const LIGHT_TYPES = new Set([0, 1, 2, 3, 4, 5, 8, 9, 12, 13])
+
+function parseLightEvents(diff: any, spb: number): LightEvent[] {
+  let evs: LightEvent[] = []
+  if (Array.isArray(diff._events) && diff._events.length) {
+    // v2
+    for (const e of diff._events) {
+      if (!LIGHT_TYPES.has(e._type)) continue
+      evs.push({ t: e._time * spb, type: e._type, value: e._value | 0, f: e._floatValue ?? 1 })
+    }
+  } else {
+    // v3
+    if (Array.isArray(diff.basicBeatmapEvents)) {
+      for (const e of diff.basicBeatmapEvents) {
+        if (!LIGHT_TYPES.has(e.et)) continue
+        evs.push({ t: (e.b || 0) * spb, type: e.et, value: e.i | 0, f: e.f ?? 1 })
+      }
+    }
+    if (Array.isArray(diff.colorBoostBeatmapEvents)) {
+      for (const e of diff.colorBoostBeatmapEvents) {
+        evs.push({ t: (e.b || 0) * spb, type: 5, value: e.o ? 1 : 0, f: 1 })
+      }
+    }
+    // Newer v3 maps only carry group lighting — flatten to approximate basic events
+    const lit = evs.filter(e => e.type <= 4)
+    if (lit.length < 8 && Array.isArray(diff.lightColorEventBoxGroups) && diff.lightColorEventBoxGroups.length) {
+      evs = evs.concat(flattenLightGroups(diff, spb))
+    }
+  }
+  evs.sort((a, b) => a.t - b.t)
+  return evs
+}
+
+function flattenLightGroups(diff: any, spb: number): LightEvent[] {
+  const out: LightEvent[] = []
+  const groups = diff.lightColorEventBoxGroups
+  const ids = [...new Set<number>(groups.map((g: any) => g.g))].sort((a, b) => a - b)
+  const cyc = [1, 4, 0, 2, 3]
+  const typeFor: any = {}
+  ids.forEach((id, i) => { typeFor[id] = cyc[i % cyc.length] })
+  for (const g of groups) {
+    const type = typeFor[g.g]
+    for (const box of g.e || []) {
+      for (const l of box.l || []) {
+        const s = l.s ?? 1
+        const strobe = (l.f || 0) > 0
+        const value = s <= 0.01 ? 0
+          : l.c === 0 ? (strobe ? 6 : 5)
+          : l.c === 2 ? (strobe ? 10 : 9)
+          : (strobe ? 2 : 1)
+        out.push({ t: ((g.b || 0) + (l.b || 0)) * spb, type, value, f: Math.min(1.5, s) })
+      }
+    }
+  }
+  // Ring spins from rotation groups (throttled)
+  if (Array.isArray(diff.lightRotationEventBoxGroups)) {
+    let lastSpin = -10
+    const times = diff.lightRotationEventBoxGroups.map(g => (g.b || 0) * spb).sort((a, b) => a - b)
+    for (const t of times) {
+      if (t - lastSpin < 0.4) continue
+      lastSpin = t
+      out.push({ t, type: 8, value: 0, f: 1 })
+    }
+  }
+  return out.length > 24000 ? out.filter((_, i) => i % 2 === 0) : out
 }
 
 const diffLabels = {

@@ -1,6 +1,6 @@
-<script setup>
+<script setup lang="ts">
 import { ref, onMounted, onUnmounted, provide } from 'vue'
-import { useGame } from './composables/useGame.js'
+import { useGame } from './composables/useGame'
 
 const game = useGame()
 provide('game', game)

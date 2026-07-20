@@ -1,6 +1,12 @@
 import * as THREE from 'three'
 
 export class Trail {
+  N: number
+  pts: { t: THREE.Vector3; b: THREE.Vector3 }[]
+  geo: THREE.BufferGeometry
+  mesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>
+  inited: boolean
+
   constructor(color) {
     this.N = 14
     this.pts = []

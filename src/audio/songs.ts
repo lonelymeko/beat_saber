@@ -99,7 +99,7 @@ function genMap(sections, spb, seed) {
   }
 
   // Pattern: doubles (both hands simultaneously, same direction or complementary)
-  function double(t, dL, dR) {
+  function double(t, dL?, dR?) {
     if (wallSide(t) !== 0) {
       // During walls, favor the non-wall side
       add(t, 2, 1, 1, dR || 1)
@@ -242,6 +242,7 @@ function genMap(sections, spb, seed) {
             const h = rng() < 0.5 ? 0 : 1
             for (let k = 0; k < 4; k++) {
               const dir = k % 2 === 0 ? 0 : 1
+              const p = posForDir(dir, h)
               add(bt + k * spb, p.x, p.y, h, dir)
             }
           }

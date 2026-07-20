@@ -13,9 +13,11 @@
     "vue": "^3.5.39"
   },
   "devDependencies": {
+    "@types/three": "^0.185.1",
     "@vitejs/plugin-basic-ssl": "^2.3.0",
     "@vitejs/plugin-vue": "^6.0.7",
     "playwright": "^1.61.1",
+    "typescript": "^7.0.2",
     "vite": "^8.1.1"
   }
 }

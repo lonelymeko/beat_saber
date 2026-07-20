@@ -36,29 +36,25 @@
 - [x] Canvas 纹理粒子系统
 - [x] 网格地面 + fog + 场景管理（BaseEnv 类）
 
+### 工程
+- [x] 全项目 TypeScript 化（tsconfig + 类字段声明 + `src/types.ts` 共享类型，`tsc --noEmit` 通过）
+
 ---
 
 ## 待完成
 
-### 1. 彩灯事件 ← 最优先
-BeatSaver v3 难度文件包含灯光事件，可以实现与官方一致的舞台灯光效果。
-
-**数据字段**：
-- `basicBeatmapEvents`: 基础灯光开/关/闪烁
-- `colorBoostBeatmapEvents`: 颜色增强
-- `lightColorEventBoxGroups`: 左右柱颜色过渡（Beat Saber 两侧灯柱）
-- `lightRotationEventBoxGroups`: 灯柱旋转
-- `lightTranslationEventBoxGroups`: 灯光平移
-
-**实现思路**：
-- 创建左右两侧发光柱体（`CylinderGeometry` + `MeshBasicMaterial`）
-- 根据 `lightColorEventBoxGroups` 中的 keyframes 做颜色渐变
-- 用 `basicBeatmapEvents` 控制环境灯（DirectionalLight / PointLight）开关和颜色
-- 灯柱旋转用 `lightRotationEventBoxGroups` 控制 Z 轴旋转
-
-**参考**：
-- 正版 Beat Saber 默认场景：两侧灯柱 + 地面霓虹网格 + 中心舞台
-- supermedium/beatsaver-viewer：`leftStageLasers` / `rightStageLasers` A-Frame 组件
+### 1. 彩灯事件 ✅ 已完成
+- [x] v2 `_events` 解析（`_time/_type/_value/_floatValue`）
+- [x] v3 `basicBeatmapEvents` + `colorBoostBeatmapEvents` 解析
+- [x] v3 纯灯组谱面降级：`lightColorEventBoxGroups` 展平为基础事件、`lightRotationEventBoxGroups` 映射为 ring spin
+- [x] 官方默认舞台 `OfficialEnv`（env id `official`，BeatSaver 谱面默认）：
+  - 跑道 + 轨道边缘灯带 + 远端光晕（type 4 中心灯）
+  - 方形灯环隧道 ×12，支持 ring spin（type 8 级联旋转）/ ring zoom（type 9 间距缩放）
+  - 背景激光扇（type 0）、左右旋转激光阵（type 2/3，type 12/13 控转速）
+  - 官方事件语义：on/flash/fade/transition × 红/蓝/白，color boost（type 5）切换增强配色
+- [x] 播放循环按秒派发事件（顺序指针 `G.lightIdx`）；IndexedDB 持久化 `lights`
+- [x] 无灯光数据的谱面：内置节拍灯光秀兜底
+- 后续可做：`lightColorEventBoxGroups` 按灯 id 精确 keyframe 渐变（当前为近似展平）、`lightTranslationEventBoxGroups` 平移
 
 ### 2. 滑条 & 连打
 BeatSaver v3 新增滑条和连打滑块。

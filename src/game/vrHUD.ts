@@ -18,6 +18,56 @@ function makeSprite(canvas, scaleX, scaleY) {
 }
 
 export class VRHUD {
+  scene: THREE.Scene
+  camera: THREE.Camera
+  group: THREE.Group
+
+  _visible: boolean
+  _pendingUpdate: boolean
+  _lastScore: number
+  _lastCombo: number
+  _lastAcc: string
+  _lastMult: string
+  _lastEnergy: number
+  _lastProgress: number
+  _lastCountdown: string
+  _lastResults: any
+  _lastFail: any
+  _lastPaused: boolean
+  _songLabel: string
+
+  scoreCtx: CanvasRenderingContext2D
+  scoreCanvas: HTMLCanvasElement
+  scoreSpr: THREE.Sprite
+  comboCtx: CanvasRenderingContext2D
+  comboCanvas: HTMLCanvasElement
+  comboSpr: THREE.Sprite
+  energyBg: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>
+  energyFill: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>
+  progressBg: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>
+  progressFill: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>
+  countCtx: CanvasRenderingContext2D
+  countCanvas: HTMLCanvasElement
+  countSpr: THREE.Sprite
+  resCtx: CanvasRenderingContext2D
+  resCanvas: HTMLCanvasElement
+  resultsPanel: THREE.Group
+  resultsSp: THREE.Mesh
+  resultsTex: THREE.CanvasTexture
+  failCtx: CanvasRenderingContext2D
+  failCanvas: HTMLCanvasElement
+  failPanel: THREE.Group
+  failSp: THREE.Mesh
+  failTex: THREE.CanvasTexture
+  pauseCtx: CanvasRenderingContext2D
+  pauseCanvas: HTMLCanvasElement
+  pausePanel: THREE.Group
+  pauseSp: THREE.Mesh
+  pauseTex: THREE.CanvasTexture
+  songCtx: CanvasRenderingContext2D
+  songCanvas: HTMLCanvasElement
+  songSpr: THREE.Sprite
+
   constructor(scene, camera) {
     this.scene = scene
     this.camera = camera
@@ -457,7 +507,7 @@ export class VRHUD {
   }
 
   dispose() {
-    this.group.traverse((o) => {
+    this.group.traverse((o: any) => {
       if (o.geometry) o.geometry.dispose()
       if (o.material) {
         if (o.material.map) o.material.map.dispose()

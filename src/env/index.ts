@@ -1,6 +1,9 @@
 import * as THREE from 'three'
+import type { LightEvent } from '../types'
 
-function canvasTex(w, h, fn) {
+type BasicMesh = THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>
+
+function canvasTex(w: number, h: number, fn: (g: CanvasRenderingContext2D, w: number, h: number) => void): THREE.CanvasTexture {
   const c = document.createElement('canvas')
   c.width = w
   c.height = h
@@ -10,8 +13,14 @@ function canvasTex(w, h, fn) {
   return t
 }
 
-class BaseEnv {
-  constructor(scene, colorL, colorR) {
+export class BaseEnv {
+  scene: THREE.Scene
+  colorL: number
+  colorR: number
+  group: THREE.Group
+  pulse: number
+  hasLightEvents?: boolean
+  constructor(scene: THREE.Scene, colorL: number, colorR: number) {
     this.scene = scene
     this.colorL = colorL
     this.colorR = colorR
@@ -19,10 +28,11 @@ class BaseEnv {
     scene.add(this.group)
     this.pulse = 0
   }
-  onBeat(i) { this.pulse = 1 }
-  update(dt, t) { this.pulse *= Math.exp(-dt * 4.5) }
+  onBeat(i: number) { this.pulse = 1 }
+  onLightEvent(ev: LightEvent) {}
+  update(dt: number, t: number) { this.pulse *= Math.exp(-dt * 4.5) }
   dispose() {
-    this.group.traverse(o => {
+    this.group.traverse((o: any) => {
       if (o.geometry) o.geometry.dispose()
       if (o.material) {
         const ms = Array.isArray(o.material) ? o.material : [o.material]
@@ -34,7 +44,12 @@ class BaseEnv {
 }
 
 class NeonEnv extends BaseEnv {
-  constructor(scene, cl, cr) {
+  gridTex: THREE.CanvasTexture
+  strips: THREE.MeshBasicMaterial[]
+  edges: { m: THREE.LineBasicMaterial, base: THREE.Color }[]
+  rings: BasicMesh[]
+  lasers: BasicMesh[]
+  constructor(scene: THREE.Scene, cl: number, cr: number) {
     super(scene, cl, cr)
     scene.background = new THREE.Color(0x030309)
     scene.fog = new THREE.Fog(0x05030f, 25, 190)
@@ -128,7 +143,7 @@ class NeonEnv extends BaseEnv {
       this.group.add(l); this.lasers.push(l)
     }
   }
-  update(dt, t) {
+  update(dt: number, t: number) {
     super.update(dt, t)
     this.gridTex.offset.y -= dt * 1.35
     this.rings.forEach((r, i) => {
@@ -152,7 +167,15 @@ class NeonEnv extends BaseEnv {
 }
 
 class InkEnv extends BaseEnv {
-  constructor(scene, cl, cr) {
+  halo: THREE.Sprite
+  mountains: { m: THREE.Mesh, phase: number, amp: number }[]
+  glint: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>
+  lanterns: { grp: THREE.Group, glow: THREE.SpriteMaterial, baseX: number, speed: number, phase: number }[]
+  petalPos: Float32Array
+  petalPhase: Float32Array
+  petalGeo: THREE.BufferGeometry
+  mists: { m: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>, phase: number }[]
+  constructor(scene: THREE.Scene, cl: number, cr: number) {
     super(scene, cl, cr)
     scene.background = new THREE.Color(0x0b0f18)
     scene.fog = new THREE.Fog(0x0b0f18, 28, 185)
@@ -190,7 +213,7 @@ class InkEnv extends BaseEnv {
       g.lineTo(1024, 256); g.closePath(); g.fill()
     })
     this.mountains = []
-    ;[['#0d1320', -170, 90, 1, 8], ['#121a2a', -125, 70, 2, 10], ['#182238', -85, 52, 3, 12]].forEach(([col, z, h, seed, jag], i) => {
+    ;([['#0d1320', -170, 90, 1, 8], ['#121a2a', -125, 70, 2, 10], ['#182238', -85, 52, 3, 12]] as [string, number, number, number, number][]).forEach(([col, z, h, seed, jag], i) => {
       const m = new THREE.Mesh(
         new THREE.PlaneGeometry(360, h),
         new THREE.MeshBasicMaterial({ map: mkMountain(col, seed, jag), transparent: true, depthWrite: false }),
@@ -289,7 +312,7 @@ class InkEnv extends BaseEnv {
       this.mists.push({ m, phase: i * 1.7 })
     }
   }
-  update(dt, t) {
+  update(dt: number, t: number) {
     super.update(dt, t)
     this.halo.material.opacity = 0.45 + this.pulse * 0.35 + 0.06 * Math.sin(t * 1.2)
     this.mountains.forEach(o => { o.m.position.x = Math.sin(t * 0.02 + o.phase) * o.amp })
@@ -319,7 +342,17 @@ class InkEnv extends BaseEnv {
 }
 
 class SpaceEnv extends BaseEnv {
-  constructor(scene, cl, cr) {
+  stars: THREE.Points
+  nebulas: { sp: THREE.Sprite, phase: number }[]
+  planet: THREE.Mesh
+  asteroids: { a: THREE.Mesh, rs: number }[]
+  streaks: BasicMesh[]
+  strips: THREE.MeshBasicMaterial[]
+  comet: THREE.Sprite
+  cometT: number
+  cometStart: { x: number, y: number }
+  cometLife: number
+  constructor(scene: THREE.Scene, cl: number, cr: number) {
     super(scene, cl, cr)
     scene.background = new THREE.Color(0x02020a)
     scene.fog = null
@@ -447,7 +480,7 @@ class SpaceEnv extends BaseEnv {
     this.group.add(this.comet)
     this.cometT = 4
   }
-  update(dt, t) {
+  update(dt: number, t: number) {
     super.update(dt, t)
     this.stars.rotation.y += dt * 0.006
     this.stars.rotation.z += dt * 0.003
@@ -487,7 +520,10 @@ class SpaceEnv extends BaseEnv {
 }
 
 class MikuEnv extends BaseEnv {
-  constructor(scene, cl, cr) {
+  gridTex: THREE.CanvasTexture
+  particles: THREE.Mesh[]
+  lightBars: THREE.Group
+  constructor(scene: THREE.Scene, cl: number, cr: number) {
     super(scene, cl, cr)
     scene.background = new THREE.Color(0x060a18)
     scene.fog = new THREE.Fog(0x080a20, 20, 160)
@@ -538,7 +574,7 @@ class MikuEnv extends BaseEnv {
     this.lightBars = lightBars
   }
 
-  update(dt, t) {
+  update(dt: number, t: number) {
     super.update(dt, t)
     this.gridTex.offset.x += dt * 0.6
     const pulse = 1 + this.pulse * 0.2
@@ -549,7 +585,7 @@ class MikuEnv extends BaseEnv {
       if (p.position.z > 10) p.position.z = -40
       p.position.y = p.userData.yBase + Math.sin(p.userData.angle * 0.7 + t) * p.userData.yAmp
     }
-    this.lightBars.children.forEach(bar => {
+    this.lightBars.children.forEach((bar: any) => {
       bar.material.opacity = 0.2 + Math.sin(t * bar.userData.speed + bar.userData.osc) * 0.1
     })
   }
@@ -561,7 +597,10 @@ class MikuEnv extends BaseEnv {
 }
 
 class GhostEnv extends BaseEnv {
-  constructor(scene, cl, cr) {
+  gridTex: THREE.CanvasTexture
+  flames: BasicMesh[]
+  centerGlow: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>
+  constructor(scene: THREE.Scene, cl: number, cr: number) {
     super(scene, cl, cr)
     scene.background = new THREE.Color(0x020208)
     scene.fog = new THREE.Fog(0x050308, 18, 140)
@@ -615,7 +654,7 @@ class GhostEnv extends BaseEnv {
     }
   }
 
-  update(dt, t) {
+  update(dt: number, t: number) {
     super.update(dt, t)
     this.gridTex.offset.x += dt * 1.2
     const pulse = 1 + this.pulse * 0.3
@@ -638,13 +677,266 @@ class GhostEnv extends BaseEnv {
   }
 }
 
-export function createEnv(id, scene, colorL, colorR) {
+// ===== Official Beat Saber default stage =====
+// Light groups follow the official event semantics:
+//   type 0 back lasers · 1 ring lights · 2/3 left/right rotating lasers · 4 center lights
+//   type 5 color boost · 8 ring spin · 9 ring zoom · 12/13 laser rotation speed
+// Values: 0 off · 1-4 right color on/flash/fade/transition · 5-8 left · 9-12 white
+const _lgColor = new THREE.Color()
+
+class LightGroup {
+  intensity: number
+  base: number
+  colorIdx: 'L' | 'R' | 'W'
+  mats: { mat: THREE.MeshBasicMaterial | THREE.SpriteMaterial, gain: number }[]
+  constructor() {
+    this.intensity = 0
+    this.base = 0
+    this.colorIdx = 'R'
+    this.mats = []
+  }
+  add(mat: THREE.MeshBasicMaterial | THREE.SpriteMaterial, gain = 1) { this.mats.push({ mat, gain }) }
+  onEvent(value: number, f = 1) {
+    const v = value | 0
+    if (v === 0) { this.base = 0; return }
+    this.colorIdx = v <= 4 ? 'R' : v <= 8 ? 'L' : 'W'
+    const kind = (v - 1) % 4 // 0=on 1=flash 2=fade 3=transition
+    if (kind === 0 || kind === 3) { this.intensity = f; this.base = f }
+    else if (kind === 1) { this.intensity = Math.min(1.5, f * 1.25); this.base = f }
+    else { this.intensity = Math.min(1.5, f * 1.1); this.base = 0 }
+  }
+  update(dt: number, palette: { L: THREE.Color, R: THREE.Color, W: THREE.Color }) {
+    const rate = this.base > this.intensity ? 16 : (this.base === 0 ? 4.5 : 7)
+    this.intensity += (this.base - this.intensity) * (1 - Math.exp(-dt * rate))
+    if (this.base === 0 && this.intensity < 0.003) this.intensity = 0
+    _lgColor.copy(palette[this.colorIdx]).multiplyScalar(this.intensity)
+    for (const { mat, gain } of this.mats) mat.color.copy(_lgColor).multiplyScalar(gain)
+  }
+}
+
+class OfficialEnv extends BaseEnv {
+  palNormal: { L: THREE.Color, R: THREE.Color, W: THREE.Color }
+  palBoost: { L: THREE.Color, R: THREE.Color, W: THREE.Color }
+  boost: boolean
+  groups: { back: LightGroup, ring: LightGroup, left: LightGroup, right: LightGroup, center: LightGroup }
+  rings: { g: THREE.Group, angle: number, target: number, z: number, zTarget: number }[]
+  ringSpacing: number
+  ringSpacingTarget: number
+  sideLasers: { left: { beam: THREE.Mesh, phase: number, dir: number }[], right: { beam: THREE.Mesh, phase: number, dir: number }[] }
+  laserSpeed: { left: number, right: number }
+  laserAngle: { left: number, right: number }
+  _beatCount: number
+  constructor(scene: THREE.Scene, cl: number, cr: number) {
+    super(scene, cl, cr)
+    scene.background = new THREE.Color(0x010104)
+    scene.fog = new THREE.Fog(0x02020a, 30, 230)
+
+    this.palNormal = { L: new THREE.Color(cl), R: new THREE.Color(cr), W: new THREE.Color(0xdfe6ff) }
+    this.palBoost = {
+      L: new THREE.Color(cl).offsetHSL(0.07, 0, 0.06),
+      R: new THREE.Color(cr).offsetHSL(-0.07, 0, 0.06),
+      W: new THREE.Color(0xffffff),
+    }
+    this.boost = false
+    this.hasLightEvents = false
+
+    this.groups = {
+      back: new LightGroup(),
+      ring: new LightGroup(),
+      left: new LightGroup(),
+      right: new LightGroup(),
+      center: new LightGroup(),
+    }
+
+    const addMat = (opts = {}) => new THREE.MeshBasicMaterial({
+      color: 0x000000, transparent: true, opacity: 1,
+      blending: THREE.AdditiveBlending, depthWrite: false, ...opts,
+    })
+
+    // -- Runway --
+    const lane = new THREE.Mesh(
+      new THREE.PlaneGeometry(4.4, 420),
+      new THREE.MeshBasicMaterial({ color: 0x05050c }),
+    )
+    lane.rotation.x = -Math.PI / 2
+    lane.position.set(0, 0, -170)
+    this.group.add(lane)
+    const apron = new THREE.Mesh(
+      new THREE.PlaneGeometry(120, 420),
+      new THREE.MeshBasicMaterial({ color: 0x020206 }),
+    )
+    apron.rotation.x = -Math.PI / 2
+    apron.position.set(0, -0.02, -170)
+    this.group.add(apron)
+
+    // Track edge strips + far crossbar → center lights (type 4)
+    const stripMat = addMat()
+    ;[-2.25, 2.25].forEach(x => {
+      const s = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.05, 420), stripMat)
+      s.position.set(x, 0.03, -170)
+      this.group.add(s)
+    })
+    const crossbar = new THREE.Mesh(new THREE.BoxGeometry(36, 0.35, 0.35), stripMat)
+    crossbar.position.set(0, 0.2, -150)
+    this.group.add(crossbar)
+    const glowTex = canvasTex(256, 256, (g) => {
+      const gr = g.createRadialGradient(128, 128, 8, 128, 128, 128)
+      gr.addColorStop(0, 'rgba(255,255,255,0.9)')
+      gr.addColorStop(0.35, 'rgba(255,255,255,0.25)')
+      gr.addColorStop(1, 'rgba(255,255,255,0)')
+      g.fillStyle = gr; g.fillRect(0, 0, 256, 256)
+    })
+    const sunMat = new THREE.SpriteMaterial({
+      map: glowTex, color: 0x000000, transparent: true,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    })
+    const sun = new THREE.Sprite(sunMat)
+    sun.scale.set(65, 65, 1)
+    sun.position.set(0, 6, -175)
+    this.group.add(sun)
+    this.groups.center.add(stripMat, 1)
+    this.groups.center.add(sunMat, 0.22)
+
+    // -- Ring tunnel (type 1 lights, type 8 spin, type 9 zoom) --
+    this.rings = []
+    this.ringSpacing = 9
+    this.ringSpacingTarget = 9
+    const RING_N = 12
+    const S = 11, F = 0.45
+    const frameMat = new THREE.MeshBasicMaterial({ color: 0x07080e })
+    for (let i = 0; i < RING_N; i++) {
+      const g = new THREE.Group()
+      const tubeMat = addMat()
+      // 4 sides: dark frame + inner glow tube
+      const sides = [
+        [0, S / 2, S + F, F],   // top    [x, y, w, h]
+        [0, -S / 2, S + F, F],  // bottom
+        [-S / 2, 0, F, S + F],  // left
+        [S / 2, 0, F, S + F],   // right
+      ]
+      for (const [x, y, w, h] of sides) {
+        const frame = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.5), frameMat)
+        frame.position.set(x, y, 0)
+        g.add(frame)
+        const tube = new THREE.Mesh(new THREE.BoxGeometry(w > h ? w - F * 2 : 0.12, h > w ? h - F * 2 : 0.12, 0.14), tubeMat)
+        tube.position.set(x * (1 - F / S * 2), y * (1 - F / S * 2), 0.28)
+        g.add(tube)
+      }
+      g.position.set(0, 3.2, -22 - i * this.ringSpacing)
+      this.group.add(g)
+      this.rings.push({ g, angle: 0, target: 0, z: g.position.z, zTarget: g.position.z })
+      this.groups.ring.add(tubeMat, 1 - i * 0.03)
+    }
+
+    // -- Back laser fan (type 0): a row of emitters so beams don't stack into one hotspot --
+    const backMat = addMat()
+    for (let i = 0; i < 10; i++) {
+      const geo = new THREE.BoxGeometry(0.08, 95, 0.08)
+      geo.translate(0, 46, 0)
+      const beam = new THREE.Mesh(geo, backMat)
+      const k = i / 9 - 0.5
+      beam.position.set(k * 20, -6, -158)
+      beam.rotation.z = -k * 1.15
+      this.group.add(beam)
+    }
+    this.groups.back.add(backMat, 0.45)
+
+    // -- Rotating side lasers (types 2/3, speeds 12/13) --
+    this.sideLasers = { left: [], right: [] }
+    this.laserSpeed = { left: 1, right: 1 }
+    this.laserAngle = { left: 0, right: 0 }
+    for (const side of ['left', 'right']) {
+      const sgn = side === 'left' ? -1 : 1
+      const mat = addMat()
+      for (let i = 0; i < 6; i++) {
+        const geo = new THREE.BoxGeometry(0.07, 70, 0.07)
+        geo.translate(0, 30, 0)
+        const beam = new THREE.Mesh(geo, mat)
+        beam.position.set(sgn * (14 + i * 2.2), -1.5, -55 - i * 13)
+        this.group.add(beam)
+        this.sideLasers[side].push({ beam, phase: i * 0.55, dir: i % 2 ? 1 : -1 })
+      }
+      this.groups[side].add(mat, 0.4)
+    }
+
+    // Attract state before events arrive
+    this.groups.center.onEvent(1, 0.55)
+    this._beatCount = 0
+  }
+
+  spin() {
+    const step = (Math.random() < 0.5 ? -1 : 1) * (Math.PI / 7 + Math.random() * Math.PI / 4)
+    const twist = (Math.random() - 0.5) * 0.3
+    this.rings.forEach((r, i) => { r.target += step + twist * i })
+  }
+
+  toggleZoom() {
+    this.ringSpacingTarget = this.ringSpacingTarget > 11 ? 9 : 15
+    this.rings.forEach((r, i) => { r.zTarget = -22 - i * this.ringSpacingTarget })
+  }
+
+  onLightEvent(ev: LightEvent) {
+    switch (ev.type) {
+      case 0: this.groups.back.onEvent(ev.value, ev.f); break
+      case 1: this.groups.ring.onEvent(ev.value, ev.f); break
+      case 2: this.groups.left.onEvent(ev.value, ev.f); break
+      case 3: this.groups.right.onEvent(ev.value, ev.f); break
+      case 4: this.groups.center.onEvent(ev.value, ev.f); break
+      case 5: this.boost = ev.value > 0; break
+      case 8: this.spin(); break
+      case 9: this.toggleZoom(); break
+      case 12: this.laserSpeed.left = ev.value; break
+      case 13: this.laserSpeed.right = ev.value; break
+    }
+  }
+
+  onBeat(i: number) {
+    super.onBeat(i)
+    if (this.hasLightEvents) return
+    // Built-in light show for maps without lighting data
+    this._beatCount = i
+    const right = i % 4 < 2
+    this.groups.ring.onEvent(i % 8 === 0 ? (right ? 2 : 6) : (right ? 1 : 5), 0.85)
+    if (i % 2 === 0) this.groups.back.onEvent(i % 8 === 0 ? 6 : 2, 0.9)
+    if (i % 4 === 2) this.groups.center.onEvent(right ? 5 : 1, 0.8)
+    this.groups.left.onEvent(right ? 7 : 3, 0.9)
+    this.groups.right.onEvent(right ? 3 : 7, 0.9)
+    if (i % 8 === 4) this.spin()
+    if (i % 16 === 12) this.toggleZoom()
+  }
+
+  update(dt: number, t: number) {
+    super.update(dt, t)
+    const pal = this.boost ? this.palBoost : this.palNormal
+    for (const k in this.groups) this.groups[k].update(dt, pal)
+
+    for (const r of this.rings) {
+      r.angle += (r.target - r.angle) * (1 - Math.exp(-dt * 4.5))
+      r.g.rotation.z = r.angle
+      r.z += (r.zTarget - r.z) * (1 - Math.exp(-dt * 3))
+      r.g.position.z = r.z
+    }
+
+    for (const side of ['left', 'right']) {
+      this.laserAngle[side] += dt * this.laserSpeed[side] * 0.55
+      const a = this.laserAngle[side]
+      const sgn = side === 'left' ? 1 : -1
+      for (const l of this.sideLasers[side]) {
+        l.beam.rotation.z = sgn * (0.5 + Math.sin(a * l.dir + l.phase) * 0.5)
+        l.beam.rotation.x = Math.cos(a * 0.7 * l.dir + l.phase) * 0.22
+      }
+    }
+  }
+}
+
+export function createEnv(id: string, scene: THREE.Scene, colorL: number, colorR: number): BaseEnv {
   switch (id) {
     case 'neon': return new NeonEnv(scene, colorL, colorR)
     case 'ink': return new InkEnv(scene, colorL, colorR)
     case 'space': return new SpaceEnv(scene, colorL, colorR)
     case 'miku': return new MikuEnv(scene, colorL, colorR)
     case 'ghost': return new GhostEnv(scene, colorL, colorR)
+    case 'official': return new OfficialEnv(scene, colorL, colorR)
   }
   return new BaseEnv(scene, colorL, colorR)
 }
