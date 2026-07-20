@@ -98,6 +98,49 @@ canvas {
   padding: 0;
 }
 
+/* Top-right external links (GitHub / bilibili) */
+#ext-links {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  display: flex;
+  gap: 12px;
+  z-index: 50;
+}
+
+#ext-links a {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #8a94b8;
+  border-radius: 10px;
+  background: rgba(10, 14, 30, 0.55);
+  border: 1px solid rgba(127, 220, 255, 0.18);
+  transition: color 0.15s, border-color 0.15s, transform 0.15s;
+}
+
+#ext-links a:hover {
+  transform: translateY(-2px);
+}
+
+#ext-links a.gh:hover {
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.55);
+}
+
+#ext-links a.bili:hover {
+  color: #ff6699;
+  border-color: rgba(255, 102, 153, 0.6);
+}
+
+#ext-links svg {
+  width: 22px;
+  height: 22px;
+  fill: currentColor;
+}
+
 #menu::before {
   content: "";
   position: absolute;
