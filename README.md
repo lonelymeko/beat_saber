@@ -76,11 +76,3 @@
 npm install
 npm run dev        # 启动开发服务器 (localhost:5173, HTTPS)
 ```
-
-## 部署
-
-```bash
-./deploy.sh        # 构建 + 上传至服务器 + Nginx 重载
-```
-
-需要 `sshpass`：`brew install sshpass`
