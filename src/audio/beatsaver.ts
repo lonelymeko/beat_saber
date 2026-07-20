@@ -517,8 +517,9 @@ function parseChart(chart: any, spb: number) {
       })
     }
   }
-  // Wall-art maps can carry 15k+ walls; sample decorations down to keep rendering sane
-  const MAX_WALLS = 3500
+  // Keep full wall data at parse time (observation maps use walls as "video pixels");
+  // the runtime samples decorations per graphics tier. This is only a sanity ceiling.
+  const MAX_WALLS = 150000
   if (walls.length > MAX_WALLS) {
     const gameplay = walls.filter(w => w.wx == null)
     const deco = walls.filter(w => w.wx != null)

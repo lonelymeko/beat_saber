@@ -367,7 +367,10 @@ export function useGame() {
       )
     }
     const sc = readNoodleProp(d, 'scale', lifeP)
-    if (sc) obj.scale.set(sc[0] ?? 1, sc[1] ?? sc[0] ?? 1, sc[2] ?? sc[0] ?? 1)
+    if (sc) {
+      const bs = obj.userData.baseScale || [1, 1, 1]
+      obj.scale.set((sc[0] ?? 1) * bs[0], (sc[1] ?? sc[0] ?? 1) * bs[1], (sc[2] ?? sc[0] ?? 1) * bs[2])
+    }
     const dis = readNoodleProp(d, 'dissolve', lifeP)
     return dis ? Math.max(0, Math.min(1, dis[0])) : 1
   }
@@ -391,6 +394,21 @@ export function useGame() {
       }
     }
     G.notes.push(rec)
+  }
+
+  // Wall-art / observation maps use walls as "video pixels" — budget decorations
+  // by graphics tier so high quality plays them at full fidelity (FPS tradeoff accepted).
+  const WALL_BUDGET: Record<string, number> = { low: 3500, medium: 12000, high: Infinity }
+  function capDecoWalls(walls: any[], q: string): any[] {
+    const cap = WALL_BUDGET[q] ?? Infinity
+    if (!walls || walls.length <= cap) return walls
+    const gameplay = walls.filter(w => w.wx == null)
+    const deco = walls.filter(w => w.wx != null)
+    const keepEvery = Math.ceil(deco.length / Math.max(1, cap - gameplay.length))
+    const out = gameplay.concat(deco.filter((_, i) => i % keepEvery === 0))
+    out.sort((a, b) => a.t - b.t)
+    console.log('[WALL-BUDGET]', q, walls.length, '→', out.length)
+    return out
   }
 
   function spawnWall(w, speed) {
@@ -430,7 +448,7 @@ export function useGame() {
   function clearPlayfield() {
     G.notes.forEach(n => scene.remove(n.g))
     G.arcs.forEach(o => { scene.remove(o.m); o.m.geometry.dispose(); o.m.material.dispose() })
-    G.walls.forEach(w => { scene.remove(w.m); w.m.geometry.dispose(); (w.m.userData.ownMats || []).forEach(mm => mm.dispose()) })
+    G.walls.forEach(w => { scene.remove(w.m); (w.m.userData.ownMats || []).forEach(mm => mm.dispose()) })
     G.halves.forEach(h => { scene.remove(h.m); h.m.children.forEach(c => { if (c.material) c.material.dispose() }) })
     G.bursts.forEach(b => { scene.remove(b.pts); scene.remove(b.flash); releaseBurst(b) })
     G.texts.forEach(t => { scene.remove(t.sp); if (t.tex) t.tex.dispose(); t.sp.material.dispose() })
@@ -700,6 +718,7 @@ export function useGame() {
     songIdx.value = idx
     meta.value = { ...SONGS[idx] }
     G.song = SONGS[idx].build()
+    G.song.walls = capDecoWalls(G.song.walls, quality.value)
     G.meta = { ...SONGS[idx] }
     G.hitZ = XR.active ? -0.65 : SABER_Z
 
@@ -1303,7 +1322,6 @@ export function useGame() {
         }
         if (frontZ - o.len > 3) {
           scene.remove(o.m)
-          o.m.traverse(c => { if (c.geometry) c.geometry.dispose() })
           ;(o.m.userData.ownMats || []).forEach(mm => mm.dispose())
           G.walls.splice(i, 1)
         }
@@ -2222,7 +2240,15 @@ export function useGame() {
       if (!env) {
         const firstSong = SONGS[0]
         env = createEnv(firstSong.env, scene, firstSong.colorL, firstSong.colorR)
+      }
+      // The desktop menu backdrop (ensureMenuEnv) already creates env, so the
+      // state switch must not hide behind the !env check — otherwise the VR
+      // menu (cards + menu sabers) never builds and only the stage is visible
+      if (state.value === 'menu') {
         state.value = 'vrmenu'
+        _vrFirstMenuFrame = true
+        _vrTriggerDown = { left: true, right: true }
+        _vrMenuCooldown = 0.6
       }
       ensureAudio()
 

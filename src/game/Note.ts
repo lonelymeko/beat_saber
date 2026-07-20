@@ -76,6 +76,11 @@ export function createArcMesh(a, speed, color) {
   return new THREE.Mesh(geo, mat)
 }
 
+// Walls share one unit-box geometry (scaled per wall): wall-art maps spawn
+// hundreds of walls per second and per-wall BoxGeometry+EdgesGeometry would stutter
+const _wallGeo = new THREE.BoxGeometry(1, 1, 1)
+const _wallEdgeGeo = new THREE.EdgesGeometry(_wallGeo)
+
 export function createWallMesh(w, speed, hitZ) {
   const len = Math.max(w.dur * speed, 0.05)
   const wallH = w.wh ?? (w.crouch ? 1.3 : 2.9)
@@ -85,15 +90,18 @@ export function createWallMesh(w, speed, hitZ) {
   const fillMat = new THREE.MeshBasicMaterial({
     color: baseCol, transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide,
   })
-  const m = new THREE.Mesh(new THREE.BoxGeometry(wallW, wallH, len), fillMat)
+  const m = new THREE.Mesh(_wallGeo, fillMat)
+  m.scale.set(wallW, wallH, len)
   const edgeCol = baseCol.clone().lerp(new THREE.Color(0xffffff), 0.35)
   const edgeMat = new THREE.LineBasicMaterial({
     color: edgeCol, transparent: true, opacity: 0.9,
     blending: THREE.AdditiveBlending, depthWrite: false,
   })
-  const edge = new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry), edgeMat)
+  const edge = new THREE.LineSegments(_wallEdgeGeo, edgeMat)
   m.add(edge)
   m.userData.ownMats = [fillMat, edgeMat]
+  m.userData.baseScale = [wallW, wallH, len]
+  m.userData.sharedGeo = true
   const x = w.wx ?? w.side * 0.58
   const y = w.wy ?? (w.crouch ? 2.1 : 1.55)
   m.position.set(x, y, hitZ - SPAWN_DIST)
