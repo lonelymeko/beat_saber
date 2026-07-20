@@ -151,7 +151,7 @@ onUnmounted(() => {
           <div class="cover-bg" :style="{ background: song.cardBg }"></div>
           <div class="cover-overlay"></div>
           <div
-            v-if="song.id && song.id.startsWith('bs_')"
+            v-if="song.id && song.id.startsWith('bs_') && !song.builtin"
             class="song-delete"
             @click.stop="game.deleteDownloadedSong(i)"
             title="Delete map"

@@ -143,55 +143,91 @@ export function createHalves(note, angle, sp, good, noteCol, textures, hotTex) {
   return halves
 }
 
+// Pooled hit-burst particles: reuse geometry/materials across hits to avoid GC churn
+const _burstPool: Record<number, any[]> = {}
+
 export function createBurst(pos, color, textures, n = 14, size = 0.12, spd = 5) {
-  const posArr = new Float32Array(n * 3)
-  const vels = []
-  for (let i = 0; i < n; i++) {
-    posArr[i * 3] = pos.x
-    posArr[i * 3 + 1] = pos.y
-    posArr[i * 3 + 2] = pos.z
-    const a = Math.random() * Math.PI * 2
-    const b = (Math.random() - 0.5) * Math.PI
-    const v = spd * (0.5 + Math.random() * 0.8)
-    vels.push(new THREE.Vector3(
-      Math.cos(a) * Math.cos(b) * v,
-      Math.sin(b) * v + 1.5,
-      Math.sin(a) * Math.cos(b) * v * 0.7 + 3,
-    ))
+  const pool = (_burstPool[n] = _burstPool[n] || [])
+  let b = pool.pop()
+  if (!b) {
+    const geo = new THREE.BufferGeometry()
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3))
+    const pts = new THREE.Points(geo, new THREE.PointsMaterial({
+      map: textures.sparkTex, transparent: true, opacity: 1,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    }))
+    const flash = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: textures.glowTex, transparent: true,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    }))
+    const vels = []
+    for (let i = 0; i < n; i++) vels.push(new THREE.Vector3())
+    b = { pts, flash, vels, n, life: 0, max: 0 }
   }
-  const geo = new THREE.BufferGeometry()
-  geo.setAttribute('position', new THREE.BufferAttribute(posArr, 3))
-  const pts = new THREE.Points(geo, new THREE.PointsMaterial({
-    map: textures.sparkTex, color, size, transparent: true, opacity: 1,
-    blending: THREE.AdditiveBlending, depthWrite: false,
-  }))
-  const flash = new THREE.Sprite(new THREE.SpriteMaterial({
-    map: textures.glowTex, color, transparent: true, opacity: 0.85,
-    blending: THREE.AdditiveBlending, depthWrite: false,
-  }))
-  flash.position.copy(pos)
-  flash.scale.set(0.3, 0.3, 1)
-  return { pts, vels, flash, life: 0.45, max: 0.45 }
+  const p = b.pts.geometry.attributes.position.array
+  for (let i = 0; i < n; i++) {
+    p[i * 3] = pos.x
+    p[i * 3 + 1] = pos.y
+    p[i * 3 + 2] = pos.z
+    const a = Math.random() * Math.PI * 2
+    const e = (Math.random() - 0.5) * Math.PI
+    const v = spd * (0.5 + Math.random() * 0.8)
+    b.vels[i].set(
+      Math.cos(a) * Math.cos(e) * v,
+      Math.sin(e) * v + 1.5,
+      Math.sin(a) * Math.cos(e) * v * 0.7 + 3,
+    )
+  }
+  b.pts.geometry.attributes.position.needsUpdate = true
+  b.pts.material.color.set(color)
+  b.pts.material.size = size
+  b.pts.material.opacity = 1
+  b.flash.material.color.set(color)
+  b.flash.material.opacity = 0.85
+  b.flash.position.copy(pos)
+  b.flash.scale.set(0.3, 0.3, 1)
+  b.life = 0.45
+  b.max = 0.45
+  return b
 }
 
+export function releaseBurst(b) {
+  const pool = (_burstPool[b.n] = _burstPool[b.n] || [])
+  if (pool.length < 24) pool.push(b)
+  else {
+    b.pts.geometry.dispose()
+    b.pts.material.dispose()
+    b.flash.material.dispose()
+  }
+}
+
+// Floating score texts repeat heavily (115/114/MISS/...) — cache textures by content
+const _textTexCache = new Map<string, THREE.CanvasTexture>()
+
 export function createFloatingText(pos, str, color) {
-  const c = document.createElement('canvas')
-  c.width = 192
-  c.height = 96
-  const g = c.getContext('2d')
-  g.font = "bold 56px 'Avenir Next','PingFang SC',sans-serif"
-  g.textAlign = 'center'
-  g.textBaseline = 'middle'
-  g.shadowColor = color
-  g.shadowBlur = 16
-  g.fillStyle = color
-  g.fillText(str, 96, 48)
-  const tex = new THREE.CanvasTexture(c)
+  const key = str + '|' + color
+  let tex = _textTexCache.get(key)
+  if (!tex) {
+    const c = document.createElement('canvas')
+    c.width = 192
+    c.height = 96
+    const g = c.getContext('2d')
+    g.font = "bold 56px 'Avenir Next','PingFang SC',sans-serif"
+    g.textAlign = 'center'
+    g.textBaseline = 'middle'
+    g.shadowColor = color
+    g.shadowBlur = 16
+    g.fillStyle = color
+    g.fillText(str, 96, 48)
+    tex = new THREE.CanvasTexture(c)
+    _textTexCache.set(key, tex)
+  }
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({
     map: tex, transparent: true, opacity: 1, depthWrite: false,
   }))
   sp.position.copy(pos)
   sp.position.z += 0.3
   sp.scale.set(0.85, 0.42, 1)
-  return { sp, tex, life: 0.75, max: 0.75, rise: 1.1, grow: 0 }
+  // tex: null → the cleanup path must not dispose the cached texture
+  return { sp, tex: null, life: 0.75, max: 0.75, rise: 1.1, grow: 0 }
 }

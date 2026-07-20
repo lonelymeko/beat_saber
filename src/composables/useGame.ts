@@ -6,13 +6,13 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
 import { Synth, MusicPlayer } from '../audio/Synth'
 import { SONGS } from '../audio/songs'
-import { searchBeatSaver, downloadBeatMap } from '../audio/beatsaver'
+import { searchBeatSaver, downloadBeatMap, loadBuiltinMap } from '../audio/beatsaver'
 import { saveMap, loadAllMaps, deleteMap } from '../audio/storage'
 import { analyzeAudioBuffer } from '../audio/analyzer'
 import { initTextures, makeEnvMap } from '../game/Textures'
 import { Saber } from '../game/Saber'
 import { VRHUD } from '../game/vrHUD'
-import { createNoteMesh, createWallMesh, createHalves, createBurst, createFloatingText, createArcMesh, setGeometries } from '../game/Note'
+import { createNoteMesh, createWallMesh, createHalves, createBurst, releaseBurst, createFloatingText, createArcMesh, setGeometries } from '../game/Note'
 import { createEnv } from '../env/index'
 import { log, dumpLog, startLog } from './vrlog'
 import {
@@ -148,16 +148,24 @@ export function useGame() {
     })
 
     checkXRSupport()
-    // Load saved BeatSaver maps from IndexedDB
-    loadAllMaps().then((saved: any[]) => {
-      for (const s of saved) {
-        if (!SONGS.find(existing => existing.id === s.id)) {
-          SONGS.push(s)
-          log('loaded-saved', s.name)
-        }
+    // Bundled default maps first, then saved BeatSaver maps from IndexedDB (deduped by id)
+    loadBuiltinMap('4f454', '/builtin/4f454.zip').then(song => {
+      if (!SONGS.find(existing => existing.id === song.id)) {
+        SONGS.push(song as any)
+        songListVersion.value++
+        log('builtin-map-loaded', song.name)
       }
-      songListVersion.value++
-    }).catch(e => console.error('loadAllMaps failed:', e))
+    }).catch(e => console.error('builtin map load failed:', e)).finally(() => {
+      loadAllMaps().then((saved: any[]) => {
+        for (const s of saved) {
+          if (!SONGS.find(existing => existing.id === s.id)) {
+            SONGS.push(s)
+            log('loaded-saved', s.name)
+          }
+        }
+        songListVersion.value++
+      }).catch(e => console.error('loadAllMaps failed:', e))
+    })
     scheduleFrame()
   }
 
@@ -264,7 +272,7 @@ export function useGame() {
     G.arcs.forEach(o => { scene.remove(o.m); o.m.geometry.dispose(); o.m.material.dispose() })
     G.walls.forEach(w => { scene.remove(w.m); w.m.geometry.dispose(); (w.m.userData.ownMats || []).forEach(mm => mm.dispose()) })
     G.halves.forEach(h => { scene.remove(h.m); h.m.children.forEach(c => { if (c.material) c.material.dispose() }) })
-    G.bursts.forEach(b => { scene.remove(b.pts); scene.remove(b.flash); b.pts.geometry.dispose(); b.pts.material.dispose() })
+    G.bursts.forEach(b => { scene.remove(b.pts); scene.remove(b.flash); releaseBurst(b) })
     G.texts.forEach(t => { scene.remove(t.sp); if (t.tex) t.tex.dispose(); t.sp.material.dispose() })
     G.notes = []; G.walls = []; G.halves = []; G.bursts = []; G.texts = []; G.arcs = []
   }
@@ -734,6 +742,11 @@ export function useGame() {
   }
 
   async function downloadSong(mapData) {
+    const existingIdx = SONGS.findIndex(s => s.id === 'bs_' + mapData.id)
+    if (existingIdx >= 0) {
+      downloadProgress.value = { stage: 'done', pct: 100 }
+      return { song: SONGS[existingIdx], idx: existingIdx }
+    }
     log('beatsaver-download', mapData.id)
     downloadProgress.value = { stage: 'resolving', pct: 10 }
     const song = await downloadBeatMap(mapData, (stage, pct) => {
@@ -749,7 +762,7 @@ export function useGame() {
 
   async function deleteDownloadedSong(idx) {
     const song = SONGS[idx]
-    if (!song || !song.id || !song.id.startsWith('bs_')) return
+    if (!song || !song.id || !song.id.startsWith('bs_') || (song as any).builtin) return
     try {
       await deleteMap(song.id)
       SONGS.splice(idx, 1)
@@ -1014,8 +1027,7 @@ export function useGame() {
       if (b.life <= 0) {
         scene.remove(b.pts)
         scene.remove(b.flash)
-        b.pts.geometry.dispose()
-        b.pts.material.dispose()
+        releaseBurst(b)
         G.bursts.splice(i, 1)
         continue
       }

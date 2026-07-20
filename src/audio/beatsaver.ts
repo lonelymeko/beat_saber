@@ -136,7 +136,17 @@ async function parseBeatMapZip(buffer: Uint8Array, mapData: any, coverBlob?: Blo
     throw new Error('ZIP 解析失败: ' + e.message)
   }
 
-  return parseZipManually(zipBuffer, mapData)
+  return parseZipManually(zipBuffer, mapData, coverBlob)
+}
+
+/** Load a map zip bundled with the app (no network download, marked non-deletable). */
+export async function loadBuiltinMap(id: string, url: string): Promise<Song> {
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`builtin map fetch failed: ${res.status}`)
+  const buffer = new Uint8Array(await res.arrayBuffer())
+  const song = await parseBeatMapZip(buffer, { id }, null)
+  ;(song as any).builtin = true
+  return song
 }
 
 // Manual ZIP parser with async inflate support
@@ -186,6 +196,18 @@ async function parseZipManually(data: Uint8Array, mapData: any, coverBlob?: Blob
     }
   }
   if (!audioBuffer) throw new Error('找不到音频文件')
+
+  // Cover fallback: use the image bundled inside the zip
+  if (!coverBlob) {
+    for (const name of Object.keys(files)) {
+      const lower = name.toLowerCase()
+      if (lower.endsWith('.png') || lower.endsWith('.jpg') || lower.endsWith('.jpeg')) {
+        const type = lower.endsWith('.png') ? 'image/png' : 'image/jpeg'
+        coverBlob = new Blob([files[name]], { type })
+        break
+      }
+    }
+  }
 
   const difficulties = {}
   const allDatFiles = []

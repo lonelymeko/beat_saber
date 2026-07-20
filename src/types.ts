@@ -86,6 +86,8 @@ export interface Song {
   coverBlob?: Blob | null
   audioUrl?: string
   custom?: boolean
+  /** bundled with the app; not deletable */
+  builtin?: boolean
   internal?: SongData
   build(): SongData
 }
