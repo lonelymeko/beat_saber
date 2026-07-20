@@ -496,6 +496,61 @@ export class Synth {
     this._menuNodes = { g, stops }
   }
 
+  // ===== Song preview (official-style: selecting a song plays a looped excerpt) =====
+  _previewNodes: { g: GainNode, s: AudioBufferSourceNode } | null = null
+  _previewToken = 0
+
+  /** Decode (if needed) and loop an excerpt of the song. Returns the decoded buffer for caching. */
+  async startPreview(raw: Uint8Array | ArrayBuffer | AudioBuffer): Promise<AudioBuffer | null> {
+    const tok = ++this._previewToken
+    this.stopMenuMusic()
+    this._stopPreviewNodes()
+    let buf: AudioBuffer
+    if (raw instanceof AudioBuffer) {
+      buf = raw
+    } else {
+      const ab = raw instanceof Uint8Array
+        ? raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength)
+        : raw.slice(0)
+      try { buf = await this.ctx.decodeAudioData(ab as ArrayBuffer) } catch (e) { return null }
+    }
+    if (tok !== this._previewToken) return buf // superseded while decoding
+    const g = this.ctx.createGain()
+    const t = this.ctx.currentTime
+    g.gain.setValueAtTime(0, t)
+    g.gain.linearRampToValueAtTime(0.45, t + 0.4)
+    g.connect(this.music)
+    const s = this.ctx.createBufferSource()
+    s.buffer = buf
+    s.loop = true
+    const st = Math.min(buf.duration * 0.3, 12)
+    s.loopStart = st
+    s.loopEnd = Math.min(buf.duration, st + 30)
+    s.connect(g)
+    s.start(0, st)
+    this._previewNodes = { g, s }
+    return buf
+  }
+
+  _stopPreviewNodes() {
+    const n = this._previewNodes
+    this._previewNodes = null
+    if (!n) return
+    const t = this.ctx.currentTime
+    n.g.gain.cancelScheduledValues(t)
+    n.g.gain.setValueAtTime(n.g.gain.value, t)
+    n.g.gain.linearRampToValueAtTime(0, t + 0.25)
+    setTimeout(() => {
+      try { n.s.stop() } catch (e) {}
+      try { n.g.disconnect() } catch (e) {}
+    }, 350)
+  }
+
+  stopPreview() {
+    this._previewToken++
+    this._stopPreviewNodes()
+  }
+
   stopMenuMusic() {
     const nodes = this._menuNodes
     this._menuNodes = null
@@ -566,6 +621,8 @@ export class MusicPlayer {
   start(startTime) {
     this.startTime = startTime
     this.stopTimer()
+    // Kill any still-playing/scheduled source; otherwise two songs overlap
+    if (this.src) { try { this.src.stop() } catch (e) {} this.src = null }
     if (this.buffer) {
       this.src = this.synth.ctx.createBufferSource()
       this.src.buffer = this.buffer

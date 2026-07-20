@@ -541,6 +541,8 @@ export function useGame() {
       return
     }
     synth.stopMenuMusic()
+    synth.stopPreview()
+    G.playToken = (G.playToken || 0) + 1
     songIdx.value = idx
     meta.value = { ...SONGS[idx] }
     G.song = SONGS[idx].build()
@@ -623,7 +625,9 @@ export function useGame() {
     if (rawBuf && (rawBuf instanceof Uint8Array || (rawBuf instanceof ArrayBuffer && !(rawBuf as any).sampleRate))) {
       G.startAt = synth.ctx.currentTime + 3.6
       const ab = rawBuf instanceof Uint8Array ? rawBuf.buffer.slice(rawBuf.byteOffset, rawBuf.byteOffset + rawBuf.byteLength) : rawBuf
+      const playTok = G.playToken
       synth.ctx.decodeAudioData(ab, (decoded) => {
+        if (playTok !== G.playToken || state.value === 'menu' || state.value === 'vrmenu') return // superseded by a newer start/quit
         player.loadBuffer(decoded)
         player.start(G.startAt)
         log('audio-decoded', { duration: decoded.duration?.toFixed(1), sampleRate: decoded.sampleRate })
@@ -730,6 +734,19 @@ export function useGame() {
     env.onLightEvent({ t: 0, type: 1, value: 9, f: 0.35 })  // rings faint white
     env.onLightEvent({ t: 0, type: 12, value: 1, f: 1 })
     env.onLightEvent({ t: 0, type: 13, value: 1, f: 1 })
+  }
+
+  // Official-style song preview: selecting a song in the menu plays a looped excerpt
+  async function previewSong(idx) {
+    if (state.value !== 'menu') return
+    ensureAudio()
+    const song: any = SONGS[idx]
+    const raw = song?._previewBuf || song?.internal?.buffer
+    if (!raw) { synth.stopPreview(); synth.startMenuMusic(); return }
+    try {
+      const decoded = await synth.startPreview(raw)
+      if (decoded && !song._previewBuf) song._previewBuf = decoded
+    } catch (e) { /* keep silence */ }
   }
 
   // ========== UI sounds (DOM menu hooks) ==========
@@ -1773,6 +1790,6 @@ export function useGame() {
     init, startSong, pauseSong, resumeSong, quitToMenu, failSong,
     onMouseMove, onKeyDown, onKeyUp, toggleAuto, toggleInvincible,
     handleMusicFile, searchSong, downloadSong, deleteDownloadedSong, enterVR, dumpLog, dispose,
-    uiClick, uiHover,
+    uiClick, uiHover, previewSong,
   }
 }

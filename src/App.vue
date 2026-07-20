@@ -16,7 +16,13 @@ watch(game.songListVersion, () => {
 function selectSong(i) {
   game.uiClick()
   selectedIdx.value = i
+  game.previewSong(i)
 }
+
+// Returning to the menu resumes the selected song's preview
+watch(game.state, (s) => {
+  if (s === 'menu') game.previewSong(selectedIdx.value)
+})
 
 function playSelected() {
   game.uiClick()
@@ -59,7 +65,7 @@ async function doDownload(result) {
     const { idx } = await game.downloadSong(result)
     bsDownloading.value = ''
     bsResults.value = []; bsShowSearch.value = false; bsQuery.value = ''
-    if (idx != null && idx >= 0) selectedIdx.value = idx
+    if (idx != null && idx >= 0) { selectedIdx.value = idx; game.previewSong(idx) }
   } catch (e) { bsError.value = 'Download failed: ' + e.message; bsDownloading.value = '' }
 }
 
