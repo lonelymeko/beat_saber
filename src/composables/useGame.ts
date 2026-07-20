@@ -981,7 +981,7 @@ export function useGame() {
   }
 
   async function previewSong(idx) {
-    if (state.value !== 'menu') return
+    if (state.value !== 'menu' && state.value !== 'vrmenu') return
     ensureAudio()
     stopEventPreview()
     const song: any = SONGS[idx]
@@ -1654,34 +1654,380 @@ export function useGame() {
       c.material.dispose()
     }
     vrMenuItems = []
+    _destroyVRPanels()
   }
 
-  // Song grid + a BeatSaver browser entry card
+  // ===== Desktop-style VR song select: list panel (thumbstick scroll) + detail panel =====
+  let vrListPanel: any = null
+  let vrDetailPanel: any = null
+  let vrSelIdx = 0
+  let _vrListScroll = 0
+  let _vrListMode: 'songs' | 'browse' = 'songs'
+  let _vrBrowseList: any[] = []
+  let _vrBrowseLabel = ''
+  let _vrListDirty = true
+  let _vrDetailDirty = true
+  let _vrHoverKey = ''
+  let _vrHoverRegion: any = null
+
+  function _rr(g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+    g.beginPath()
+    g.moveTo(x + r, y)
+    g.arcTo(x + w, y, x + w, y + h, r)
+    g.arcTo(x + w, y + h, x, y + h, r)
+    g.arcTo(x, y + h, x, y, r)
+    g.arcTo(x, y, x + w, y, r)
+    g.closePath()
+  }
+
+  function _fitText(g: CanvasRenderingContext2D, s: string, maxW: number): string {
+    if (g.measureText(s).width <= maxW) return s
+    while (s.length > 1 && g.measureText(s + '…').width > maxW) s = s.slice(0, -1)
+    return s + '…'
+  }
+
+  // Cover thumbnails: load each song's cardBg image once (blob object URLs and
+  // builtin SVG covers both come through as url(...)), redraw when ready
+  function _vrCover(song: any) {
+    if (!song || song._vrBmp !== undefined) return song?._vrBmp || null
+    song._vrBmp = null
+    const m = /url\((['"]?)(.+?)\1\)/.exec(song.cardBg || '')
+    if (m) {
+      const img = new Image()
+      img.onload = () => {
+        song._vrBmp = img
+        _vrListDirty = true
+        _vrDetailDirty = true
+      }
+      img.src = m[2]
+    }
+    return null
+  }
+
+  function _makeUIPanel(wM: number, hM: number, pxW: number, pxH: number) {
+    const canvas = document.createElement('canvas')
+    canvas.width = pxW; canvas.height = pxH
+    const ctx = canvas.getContext('2d')!
+    const tex = new THREE.CanvasTexture(canvas)
+    const mesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(wM, hM),
+      new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, side: THREE.DoubleSide }),
+    )
+    mesh.userData = { canvas, ctx, tex, regions: [] as any[] }
+    return mesh
+  }
+
+  function _destroyVRPanels() {
+    for (const p of [vrListPanel, vrDetailPanel]) {
+      if (!p) continue
+      if (p.parent) p.parent.remove(p)
+      p.geometry.dispose()
+      if (p.material.map) p.material.map.dispose()
+      p.material.dispose()
+    }
+    vrListPanel = null
+    vrDetailPanel = null
+    _vrHoverKey = ''
+    _vrHoverRegion = null
+  }
+
+  function _ensureVRPanels() {
+    if (vrListPanel) return
+    vrListPanel = _makeUIPanel(1.35, 1.85, 640, 880)
+    vrListPanel.position.set(-0.82, -0.08, 0)
+    vrListPanel.rotation.y = 0.22
+    vrMenuOrigin.add(vrListPanel)
+    vrDetailPanel = _makeUIPanel(1.5, 1.35, 720, 648)
+    vrDetailPanel.position.set(0.92, 0.02, 0)
+    vrDetailPanel.rotation.y = -0.22
+    vrMenuOrigin.add(vrDetailPanel)
+    _vrListDirty = true
+    _vrDetailDirty = true
+  }
+
+  const LIST_HEAD = 84
+  const LIST_FOOT = 68
+  const LIST_ROW = 96
+
+  function _drawVRList() {
+    const { canvas, ctx: g, tex, regions } = vrListPanel.userData
+    const W = canvas.width, H = canvas.height
+    regions.length = 0
+    g.clearRect(0, 0, W, H)
+    _rr(g, 0, 0, W, H, 22)
+    g.fillStyle = 'rgba(8,11,24,0.94)'
+    g.fill()
+    g.strokeStyle = 'rgba(127,220,255,0.35)'
+    g.lineWidth = 2
+    _rr(g, 1, 1, W - 2, H - 2, 22)
+    g.stroke()
+
+    const browse = _vrListMode === 'browse'
+    // Header
+    g.textBaseline = 'middle'
+    g.textAlign = 'left'
+    g.fillStyle = '#ffffff'
+    g.font = 'bold 30px "Rajdhani", "PingFang SC", sans-serif'
+    g.fillText(browse ? _vrBrowseLabel : '歌曲列表 · SELECT SONG', 24, LIST_HEAD / 2)
+    if (browse) {
+      const bw = 130
+      _rr(g, W - bw - 20, 18, bw, LIST_HEAD - 36, 12)
+      g.fillStyle = _vrHoverKey === 'list:back' ? 'rgba(255,110,199,0.45)' : 'rgba(255,110,199,0.2)'
+      g.fill()
+      g.fillStyle = '#ff9ed9'
+      g.font = 'bold 24px "Rajdhani", "PingFang SC", sans-serif'
+      g.textAlign = 'center'
+      g.fillText('← 返回', W - bw / 2 - 20, LIST_HEAD / 2)
+      regions.push({ x: W - bw - 20, y: 18, w: bw, h: LIST_HEAD - 36, key: 'back', act: () => vrBrowserCats() })
+    } else {
+      g.fillStyle = '#7d88ad'
+      g.font = '22px "Rajdhani", "PingFang SC", sans-serif'
+      g.textAlign = 'right'
+      g.fillText(`${SONGS.length} 首`, W - 24, LIST_HEAD / 2)
+    }
+    g.strokeStyle = 'rgba(127,220,255,0.18)'
+    g.beginPath(); g.moveTo(16, LIST_HEAD); g.lineTo(W - 16, LIST_HEAD); g.stroke()
+
+    // Rows (clipped viewport, thumbstick scroll offset)
+    const items: any[] = browse ? _vrBrowseList : (SONGS as any[])
+    const viewH = H - LIST_HEAD - LIST_FOOT
+    const maxScroll = Math.max(0, items.length * LIST_ROW - viewH)
+    _vrListScroll = Math.max(0, Math.min(maxScroll, _vrListScroll))
+    g.save()
+    g.beginPath()
+    g.rect(0, LIST_HEAD, W, viewH)
+    g.clip()
+    const first = Math.floor(_vrListScroll / LIST_ROW)
+    const last = Math.min(items.length - 1, Math.ceil((_vrListScroll + viewH) / LIST_ROW))
+    for (let i = first; i <= last; i++) {
+      const it = items[i]
+      const y = LIST_HEAD + i * LIST_ROW - _vrListScroll
+      const key = (browse ? 'dl' : 'song') + i
+      const hovered = _vrHoverKey === 'list:' + key
+      const selected = !browse && i === vrSelIdx
+      const accent = browse ? '#7fdcff' : '#' + (it.colorR ?? 0x2b9eff).toString(16).padStart(6, '0')
+      if (selected || hovered) {
+        _rr(g, 10, y + 5, W - 20, LIST_ROW - 10, 14)
+        g.fillStyle = selected ? 'rgba(127,220,255,0.14)' : 'rgba(255,255,255,0.06)'
+        g.fill()
+      }
+      if (selected) {
+        g.fillStyle = accent
+        g.fillRect(10, y + 12, 5, LIST_ROW - 24)
+      }
+      // Thumb: cover bitmap or accent gradient block
+      const bmp = browse ? null : _vrCover(it)
+      if (bmp) {
+        g.save(); _rr(g, 28, y + 14, 68, 68, 10); g.clip()
+        g.drawImage(bmp, 28, y + 14, 68, 68)
+        g.restore()
+      } else {
+        _rr(g, 28, y + 14, 68, 68, 10)
+        const gr = g.createLinearGradient(28, y + 14, 96, y + 82)
+        gr.addColorStop(0, accent); gr.addColorStop(1, '#1a1f38')
+        g.fillStyle = gr
+        g.fill()
+      }
+      g.textAlign = 'left'
+      g.fillStyle = '#ffffff'
+      g.font = 'bold 28px "Rajdhani", "PingFang SC", sans-serif'
+      const name = browse ? (it.songName || it.name || '') : (it.name || '')
+      g.fillText(_fitText(g, String(name), W - 260), 112, y + 36)
+      g.fillStyle = '#9aa4c8'
+      g.font = '21px "Rajdhani", "PingFang SC", sans-serif'
+      const sub = browse
+        ? `${it.songAuthor || it.levelAuthor || ''} · ${Math.round(it.bpm || 0)} BPM`
+        : `${it.en || ''} · ${it.bpm} BPM`
+      g.fillText(_fitText(g, sub, W - 260), 112, y + 66)
+      // Right chip: difficulty / upvotes
+      const chip = browse ? `▲${it.upvotes ?? 0}` : String(it.diff || '')
+      g.font = 'bold 20px "Rajdhani", "PingFang SC", sans-serif'
+      const cw = g.measureText(chip).width + 26
+      _rr(g, W - cw - 24, y + 32, cw, 34, 17)
+      g.fillStyle = hovered ? accent : 'rgba(127,220,255,0.14)'
+      g.fill()
+      g.fillStyle = hovered ? '#0a0e1e' : '#a8e6ff'
+      g.textAlign = 'center'
+      g.fillText(chip, W - cw / 2 - 24, y + 49)
+      const ry = Math.max(LIST_HEAD, y + 5)
+      const rh = Math.min(y + LIST_ROW - 5, H - LIST_FOOT) - ry
+      if (rh <= 0) continue
+      regions.push({
+        x: 10, y: ry, w: W - 20, h: rh,
+        key,
+        act: browse
+          ? () => vrBrowserDownload(it)
+          : () => { vrSelIdx = i; _vrListDirty = true; _vrDetailDirty = true; previewSong(i) },
+      })
+    }
+    g.restore()
+    // Scrollbar
+    if (maxScroll > 0) {
+      const barH = Math.max(40, viewH * viewH / (items.length * LIST_ROW))
+      const barY = LIST_HEAD + (_vrListScroll / maxScroll) * (viewH - barH)
+      _rr(g, W - 10, barY, 5, barH, 2.5)
+      g.fillStyle = 'rgba(127,220,255,0.4)'
+      g.fill()
+    }
+    // Footer: BeatSaver entry (pinned, like the desktop button)
+    const fy = H - LIST_FOOT + 8
+    _rr(g, 16, fy, W - 32, LIST_FOOT - 20, 14)
+    g.fillStyle = _vrHoverKey === 'list:bs' ? 'rgba(255,215,110,0.4)' : 'rgba(255,215,110,0.14)'
+    g.fill()
+    g.strokeStyle = 'rgba(255,215,110,0.5)'
+    g.lineWidth = 1.5
+    _rr(g, 16, fy, W - 32, LIST_FOOT - 20, 14)
+    g.stroke()
+    g.fillStyle = '#ffd76e'
+    g.font = 'bold 25px "Rajdhani", "PingFang SC", sans-serif'
+    g.textAlign = 'center'
+    g.fillText('BEATSAVER · 社区谱面搜索下载', W / 2, fy + (LIST_FOOT - 20) / 2)
+    regions.push({ x: 16, y: fy, w: W - 32, h: LIST_FOOT - 20, key: 'bs', act: () => vrBrowserCats() })
+    tex.needsUpdate = true
+    _vrListDirty = false
+  }
+
+  function _drawVRDetail() {
+    const { canvas, ctx: g, tex, regions } = vrDetailPanel.userData
+    const W = canvas.width, H = canvas.height
+    regions.length = 0
+    g.clearRect(0, 0, W, H)
+    _rr(g, 0, 0, W, H, 22)
+    g.fillStyle = 'rgba(8,11,24,0.94)'
+    g.fill()
+    g.strokeStyle = 'rgba(127,220,255,0.35)'
+    g.lineWidth = 2
+    _rr(g, 1, 1, W - 2, H - 2, 22)
+    g.stroke()
+
+    vrSelIdx = Math.max(0, Math.min(SONGS.length - 1, vrSelIdx))
+    const s: any = SONGS[vrSelIdx]
+    if (!s) { tex.needsUpdate = true; _vrDetailDirty = false; return }
+    const accent = '#' + (s.colorR ?? 0x2b9eff).toString(16).padStart(6, '0')
+
+    // Cover + title block
+    const bmp = _vrCover(s)
+    if (bmp) {
+      g.save(); _rr(g, 28, 28, 170, 170, 16); g.clip()
+      g.drawImage(bmp, 28, 28, 170, 170)
+      g.restore()
+    } else {
+      _rr(g, 28, 28, 170, 170, 16)
+      const gr = g.createLinearGradient(28, 28, 198, 198)
+      gr.addColorStop(0, accent); gr.addColorStop(1, '#141a33')
+      g.fillStyle = gr
+      g.fill()
+    }
+    g.textBaseline = 'middle'
+    g.textAlign = 'left'
+    g.fillStyle = '#ffffff'
+    g.font = 'bold 40px "Rajdhani", "PingFang SC", sans-serif'
+    g.fillText(_fitText(g, String(s.name || ''), W - 250), 222, 70)
+    g.fillStyle = '#9aa4c8'
+    g.font = '24px "Rajdhani", "PingFang SC", sans-serif'
+    g.fillText(_fitText(g, String(s.en || ''), W - 250), 222, 116)
+    g.fillStyle = accent
+    g.font = 'bold 22px "Rajdhani", "PingFang SC", sans-serif'
+    g.fillText(_fitText(g, `${s.style || ''} · ${s.bpm} BPM`, W - 250), 222, 158)
+
+    // Difficulty pills (same behavior as the desktop pills)
+    let py = 236
+    if (s.diffList && s.diffList.length > 1) {
+      g.font = 'bold 22px "Rajdhani", "PingFang SC", sans-serif'
+      let px = 28
+      for (const d of s.diffList) {
+        const label = String(d.label || d.key)
+        const pw = g.measureText(label).width + 40
+        if (px + pw > W - 28) { px = 28; py += 62 }
+        const cur = s.internal?.currentDiff === d.key
+        const hovered = _vrHoverKey === 'detail:diff' + d.key
+        _rr(g, px, py, pw, 48, 24)
+        g.fillStyle = cur ? accent : (hovered ? 'rgba(127,220,255,0.3)' : 'rgba(127,220,255,0.12)')
+        g.fill()
+        g.fillStyle = cur ? '#0a0e1e' : '#cfe8ff'
+        g.textAlign = 'center'
+        g.fillText(label, px + pw / 2, py + 25)
+        const dk = d.key
+        regions.push({ x: px, y: py, w: pw, h: 48, key: 'diff' + dk, act: () => {
+          setSongDifficulty(vrSelIdx, dk)
+          _vrListDirty = true
+          _vrDetailDirty = true
+        } })
+        px += pw + 14
+        g.textAlign = 'left'
+      }
+      py += 76
+    }
+
+    // PLAY button
+    const byy = Math.max(py, H - 200)
+    _rr(g, 28, byy, W - 56, 92, 20)
+    g.fillStyle = _vrHoverKey === 'detail:play' ? '#ffffff' : accent
+    g.fill()
+    g.fillStyle = '#0a0e1e'
+    g.font = 'bold 42px "Rajdhani", "PingFang SC", sans-serif'
+    g.textAlign = 'center'
+    g.fillText('开始 · PLAY', W / 2, byy + 47)
+    regions.push({ x: 28, y: byy, w: W - 56, h: 92, key: 'play', act: () => {
+      const i = vrSelIdx
+      startSong(i)
+      cleanupVRMenu()
+    } })
+
+    // Delete (downloaded, non-builtin only)
+    if (s.id && String(s.id).startsWith('bs_') && !s.builtin) {
+      const dy = byy + 108
+      _rr(g, W - 250, dy, 222, 56, 14)
+      g.fillStyle = _vrHoverKey === 'detail:del' ? 'rgba(255,110,110,0.5)' : 'rgba(255,110,110,0.16)'
+      g.fill()
+      g.fillStyle = '#ff8f8f'
+      g.font = 'bold 24px "Rajdhani", "PingFang SC", sans-serif'
+      g.fillText('删除 DELETE', W - 139, dy + 29)
+      regions.push({ x: W - 250, y: dy, w: 222, h: 56, key: 'del', act: async () => {
+        await deleteDownloadedSong(vrSelIdx)
+        vrSelIdx = Math.max(0, Math.min(SONGS.length - 1, vrSelIdx))
+        _vrListDirty = true
+        _vrDetailDirty = true
+      } })
+    }
+    tex.needsUpdate = true
+    _vrDetailDirty = false
+  }
+
+  // Desktop-style panels are the VR song-select "home"
   function fillVRMenuSongs() {
     clearVRMenuCards()
-    const cards: any[] = SONGS.map((s, i) => {
-      const accent = '#' + s.colorR.toString(16).padStart(6, '0')
-      return _makeVRCard(s.name, s.en, s.bpm + ' BPM  ·  ' + s.diff, accent, () => {
-        startSong(i)
-        cleanupVRMenu()
-      })
-    })
-    cards.push(_makeVRCard('BEATSAVER', '社区谱面 · 浏览下载', 'BROWSE & DOWNLOAD', '#ffd76e', () => vrBrowserCats()))
-    _placeVRCards(cards)
+    _ensureVRPanels()
+    _vrListMode = 'songs'
+    _vrListScroll = 0
+    vrSelIdx = Math.max(0, Math.min(SONGS.length - 1, songIdx.value || 0))
+    _vrListDirty = true
+    _vrDetailDirty = true
   }
 
-  // VR BeatSaver browser: preset categories → results → laser-click download (no keyboard needed)
+  function vrShowBrowseResults(list: any[], label: string) {
+    clearVRMenuCards()
+    _ensureVRPanels()
+    _vrListMode = 'browse'
+    _vrBrowseList = list
+    _vrBrowseLabel = label
+    _vrListScroll = 0
+    _vrListDirty = true
+    _vrDetailDirty = true
+  }
+
+  // VR BeatSaver browser: preset categories → results (desktop-style list) → laser-click download
   function vrBrowserCats() {
     clearVRMenuCards()
     const cats: [string, string, () => void][] = [
-      ['热门 TOP', 'Rating 最高', () => vrBrowserFetch(() => browseBeatSaver('Rating'))],
-      ['最新 LATEST', '新上架谱面', () => vrBrowserFetch(() => browseBeatSaver('Latest'))],
+      ['热门 TOP', 'Rating 最高', () => vrBrowserFetch('热门 TOP', () => browseBeatSaver('Rating'))],
+      ['最新 LATEST', '新上架谱面', () => vrBrowserFetch('最新 LATEST', () => browseBeatSaver('Latest'))],
       ['键盘搜索', '自由输入', () => vrKeyboardShow()],
-      ['YOASOBI', '快捷搜索', () => vrBrowserFetch(() => searchBeatSaver('YOASOBI'))],
-      ['Camellia', '快捷搜索', () => vrBrowserFetch(() => searchBeatSaver('Camellia'))],
-      ['千本桜', '快捷搜索', () => vrBrowserFetch(() => searchBeatSaver('千本桜'))],
-      ['アイドル', '快捷搜索', () => vrBrowserFetch(() => searchBeatSaver('アイドル'))],
-      ['米津玄師', '快捷搜索', () => vrBrowserFetch(() => searchBeatSaver('米津玄師'))],
+      ['YOASOBI', '快捷搜索', () => vrBrowserFetch('YOASOBI', () => searchBeatSaver('YOASOBI'))],
+      ['Camellia', '快捷搜索', () => vrBrowserFetch('Camellia', () => searchBeatSaver('Camellia'))],
+      ['千本桜', '快捷搜索', () => vrBrowserFetch('千本桜', () => searchBeatSaver('千本桜'))],
+      ['アイドル', '快捷搜索', () => vrBrowserFetch('アイドル', () => searchBeatSaver('アイドル'))],
+      ['米津玄師', '快捷搜索', () => vrBrowserFetch('米津玄師', () => searchBeatSaver('米津玄師'))],
       ['← 返回歌单', 'BACK', () => fillVRMenuSongs()],
     ]
     _placeVRCards(cats.map(([main, sub, act]) => _makeVRCard(main, sub, '', '#7fdcff', act)))
@@ -1772,7 +2118,7 @@ export function useGame() {
       ['删除 DEL', 0.72, 0.55, '#ff6e6e', () => { _vrKbText = _vrKbText.slice(0, -1); _updateKbDisplay() }],
       ['搜索 GO', 0.85, 1.45, '#ffd76e', () => {
         const q = _vrKbText.trim()
-        if (q) vrBrowserFetch(() => searchBeatSaver(q))
+        if (q) vrBrowserFetch(`搜索: ${q}`, () => searchBeatSaver(q))
       }],
     ]
     for (const [label, w, x, accent, act] of specials) {
@@ -1790,17 +2136,13 @@ export function useGame() {
     _placeVRCards(cards)
   }
 
-  async function vrBrowserFetch(fetcher: () => Promise<any[]>) {
+  async function vrBrowserFetch(label: string, fetcher: () => Promise<any[]>) {
     _vrBrowserMessage('加载中…')
     try {
       const list = await fetcher()
       if (state.value !== 'vrmenu') return
       if (!list.length) { _vrBrowserMessage('没有结果', () => vrBrowserCats()); return }
-      clearVRMenuCards()
-      const cards = list.slice(0, 7).map(r =>
-        _makeVRCard(r.songName || r.name, r.songAuthor || r.levelAuthor || '', `${Math.round(r.bpm)} BPM · ▲${r.upvotes}`, '#7fdcff', () => vrBrowserDownload(r)))
-      cards.push(_makeVRCard('← 返回', 'BACK', '', '#ff6ec7', () => vrBrowserCats()))
-      _placeVRCards(cards)
+      vrShowBrowseResults(list, label)
     } catch (e) {
       if (state.value === 'vrmenu') _vrBrowserMessage('加载失败', () => vrBrowserCats())
     }
@@ -1861,6 +2203,91 @@ export function useGame() {
     log('buildVRMenu', { sabers: 'created', ctrlL: !!_ctrlObj['left'], ctrlR: !!_ctrlObj['right'], ctrlLInScene: !!(_ctrlObj['left'] && _ctrlObj['left'].parent), ctrlRInScene: !!(_ctrlObj['right'] && _ctrlObj['right'].parent) })
   }
 
+  const _vrRaycaster = new THREE.Raycaster()
+
+  function _updateVRPanelsUI(dt: number) {
+    let hoverKey = ''
+    let hoverRegion: any = null
+    for (const hand of ['left', 'right']) {
+      const pos = _ctrlPos[hand]
+      const quat = _ctrlQuat[hand]
+      const laser = hand === 'left' ? vrLaserLeft : vrLaserRight
+      if (!laser) continue
+      const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(quat)
+      _vrRaycaster.set(pos, dir)
+      _vrRaycaster.far = 10
+      const hits = _vrRaycaster.intersectObjects([vrListPanel, vrDetailPanel], false)
+      let dist = 3
+      if (hits.length && hits[0].uv) {
+        const hit = hits[0]
+        dist = hit.distance
+        const panel: any = hit.object
+        const { canvas, regions } = panel.userData
+        const px = hit.uv.x * canvas.width
+        const py = (1 - hit.uv.y) * canvas.height
+        const tag = panel === vrListPanel ? 'list' : 'detail'
+        for (const r of regions) {
+          if (px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h) {
+            hoverKey = tag + ':' + r.key
+            hoverRegion = r
+            break
+          }
+        }
+      }
+      laser.visible = true
+      laser.position.copy(pos)
+      laser.scale.y = dist
+      laser.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir)
+    }
+    if (hoverKey !== _vrHoverKey) {
+      _vrHoverKey = hoverKey
+      if (hoverKey && synth) synth.sfxHover()
+      _vrListDirty = true
+      _vrDetailDirty = true
+    }
+    _vrHoverRegion = hoverRegion
+
+    if (XR.session) {
+      for (const src of XR.session.inputSources) {
+        if (src.handedness !== 'left' && src.handedness !== 'right') continue
+        const gp = src.gamepad
+        if (!gp) continue
+        const hand = src.handedness
+        const axes = gp.axes || []
+        // Thumbstick Y scrolls the list (xr-standard: axes[3]; fallback axes[1])
+        let ay = 0
+        if (Math.abs(axes[3] || 0) > 0.15) ay = axes[3]
+        else if (Math.abs(axes[1] || 0) > 0.15) ay = axes[1]
+        if (ay) {
+          _vrListScroll += ay * dt * 850
+          _vrListDirty = true
+        }
+        let pressed = false
+        if (gp.buttons) {
+          for (let i = 0; i < gp.buttons.length; i++) {
+            const b = gp.buttons[i]
+            if (b && (i === 0 || i === 2 || i === 4) && (b.value > 0.3 || b.pressed)) pressed = true
+          }
+        }
+        // Axis-mapped triggers only on controllers without a thumbstick (would
+        // otherwise fire while scrolling)
+        if (axes.length <= 2 && Math.abs(axes[0] || 0) > 0.3) pressed = true
+        if (pressed && !_vrTriggerDown[hand] && _vrHoverRegion && _vrMenuCooldown <= 0) {
+          _vrTriggerDown[hand] = true
+          if (synth) synth.sfxClick()
+          const act = _vrHoverRegion.act
+          _vrHoverRegion = null
+          act()
+          return
+        }
+        _vrTriggerDown[hand] = pressed
+      }
+    }
+
+    if (vrListPanel && _vrListDirty) _drawVRList()
+    if (vrDetailPanel && _vrDetailDirty) _drawVRDetail()
+  }
+
   let _vrFirstMenuFrame = true
   let _vrDebugLastDump = 0
   let _vrPlayingDebugged = false
@@ -1891,6 +2318,9 @@ export function useGame() {
         cardsInScene: vrMenuOrigin ? vrMenuOrigin.children.length : 0,
       })
     }
+
+    // Desktop-style panel mode: UV-precise laser hits + thumbstick scrolling
+    if (vrListPanel) { _updateVRPanelsUI(dt); return }
 
     let hovered = -1
     for (const card of vrMenuItems) {
@@ -2206,6 +2636,7 @@ export function useGame() {
     })
     _menuSaberL = null
     _menuSaberR = null
+    _destroyVRPanels()
     if (vrMenuOrigin) { scene.remove(vrMenuOrigin); vrMenuOrigin = null }
     vrMenuItems = []
     if (vrLaserLeft) { scene.remove(vrLaserLeft); vrLaserLeft = null }
@@ -2278,5 +2709,7 @@ export function useGame() {
     onMouseMove, onKeyDown, onKeyUp, toggleAuto, toggleInvincible,
     handleMusicFile, searchSong, downloadSong, deleteDownloadedSong, enterVR, dumpLog, dispose,
     uiClick, uiHover, previewSong, quality, setQuality, setSongDifficulty,
+    // Debug: render the VR panels in desktop mode for screenshot verification
+    _debugVRPanels: (hover?: string) => { buildVRMenu(); _vrHoverKey = hover || ''; _drawVRList(); _drawVRDetail() },
   }
 }

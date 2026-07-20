@@ -201,6 +201,7 @@ onMounted(() => {
   if (canvasRef.value) {
     game.init(canvasRef.value)
   }
+  ;(window as any).__game = game
 
   window.addEventListener('mousemove', game.onMouseMove)
   window.addEventListener('keydown', game.onKeyDown)
