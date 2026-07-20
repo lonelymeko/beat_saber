@@ -904,7 +904,7 @@ export const SONGS = [
     desc: '穿行赛博都市的霓虹峡谷，激光与节拍同频闪烁。',
     bpm: 128, diff: '困难', env: 'neon', speed: 19,
     colorL: 0xff2bd0, colorR: 0x00e5ff,
-    cardBg: 'linear-gradient(160deg,#2b0a3d,#0e1445 55%,#032c3f), radial-gradient(80px 40px at 70% 30%, rgba(0,229,255,.8), transparent)',
+    cardBg: 'url(/covers/neon.svg) center/cover no-repeat',
     build: buildNeonPulse,
   },
   {
@@ -915,7 +915,7 @@ export const SONGS = [
     desc: '月照水墨群山，灯河随古筝声缓缓升起。',
     bpm: 84, diff: '简单', env: 'ink', speed: 13,
     colorL: 0xff4a3a, colorR: 0x2fe6a8,
-    cardBg: 'linear-gradient(160deg,#131722,#1d2433 55%,#0d1120), radial-gradient(90px 50px at 30% 25%, rgba(247,231,192,.55), transparent)',
+    cardBg: 'url(/covers/ink.svg) center/cover no-repeat',
     build: buildInkShadows,
   },
   {
@@ -926,7 +926,7 @@ export const SONGS = [
     desc: '跃迁引擎轰鸣，星云与流光在舷窗外飞驰。',
     bpm: 110, diff: '普通', env: 'space', speed: 16,
     colorL: 0xb266ff, colorR: 0x4fc3ff,
-    cardBg: 'linear-gradient(160deg,#0a0a2e,#1b0e3d 50%,#020214), radial-gradient(70px 70px at 75% 65%, rgba(178,102,255,.6), transparent)',
+    cardBg: 'url(/covers/space.svg) center/cover no-repeat',
     build: buildStarbound,
   },
 ]

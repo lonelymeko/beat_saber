@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400">
+  <defs>
+    <linearGradient id="inksky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0d1120"/>
+      <stop offset="0.6" stop-color="#141a2b"/>
+      <stop offset="1" stop-color="#0a0d18"/>
+    </linearGradient>
+    <radialGradient id="moon" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#f6e7c1"/>
+      <stop offset="0.75" stop-color="#f0dcae"/>
+      <stop offset="1" stop-color="#e8d09a"/>
+    </radialGradient>
+    <radialGradient id="moonhalo" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#f6e7c1" stop-opacity="0.55"/>
+      <stop offset="0.5" stop-color="#f6e7c1" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#f6e7c1" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="m1" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a3550"/>
+      <stop offset="1" stop-color="#151c30"/>
+    </linearGradient>
+    <linearGradient id="m2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1c2438"/>
+      <stop offset="1" stop-color="#101526"/>
+    </linearGradient>
+    <linearGradient id="mist" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#c8d7eb" stop-opacity="0"/>
+      <stop offset="0.5" stop-color="#c8d7eb" stop-opacity="0.14"/>
+      <stop offset="1" stop-color="#c8d7eb" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect width="400" height="400" fill="url(#inksky)"/>
+  <circle cx="118" cy="104" r="86" fill="url(#moonhalo)"/>
+  <circle cx="118" cy="104" r="44" fill="url(#moon)"/>
+  <path d="M-20 300 L60 170 L110 250 L170 150 L240 300 Z" fill="url(#m1)"/>
+  <path d="M120 320 L230 180 L300 260 L360 200 L430 320 Z" fill="url(#m2)"/>
+  <path d="M-20 340 L80 250 L180 340 L280 240 L420 350 L420 400 L-20 400 Z" fill="#0b0f1c"/>
+  <rect x="0" y="245" width="400" height="60" fill="url(#mist)"/>
+  <g fill="#e8d09a" opacity="0.8">
+    <circle cx="300" cy="330" r="3.2"/>
+    <circle cx="322" cy="352" r="2.4"/>
+    <circle cx="282" cy="356" r="2"/>
+  </g>
+  <g stroke="#39424f" stroke-width="2.5" fill="none" opacity="0.85">
+    <path d="M330 120 q14 -26 0 -46"/>
+    <path d="M344 128 q22 -34 4 -66"/>
+  </g>
+</svg>

@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#12042e"/>
+      <stop offset="0.55" stop-color="#3d0a5e"/>
+      <stop offset="0.78" stop-color="#7a1660"/>
+      <stop offset="1" stop-color="#0a0620"/>
+    </linearGradient>
+    <linearGradient id="sun" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffd76e"/>
+      <stop offset="0.5" stop-color="#ff6ec7"/>
+      <stop offset="1" stop-color="#b02bff"/>
+    </linearGradient>
+    <linearGradient id="gridfade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ff2bd0" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#00e5ff" stop-opacity="0.5"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="7" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <clipPath id="sunclip"><rect x="110" y="90" width="180" height="140"/></clipPath>
+  </defs>
+  <rect width="400" height="400" fill="url(#sky)"/>
+  <g filter="url(#glow)">
+    <circle cx="200" cy="180" r="88" fill="url(#sun)" clip-path="url(#sunclip)"/>
+  </g>
+  <g fill="#12042e">
+    <rect x="100" y="196" width="200" height="7"/>
+    <rect x="100" y="212" width="200" height="10"/>
+    <rect x="100" y="230" width="200" height="13"/>
+  </g>
+  <rect x="0" y="240" width="400" height="160" fill="#07031a"/>
+  <g stroke="url(#gridfade)" stroke-width="2" filter="url(#glow)" opacity="0.85">
+    <line x1="0" y1="268" x2="400" y2="268"/>
+    <line x1="0" y1="292" x2="400" y2="292"/>
+    <line x1="0" y1="324" x2="400" y2="324"/>
+    <line x1="0" y1="365" x2="400" y2="365"/>
+    <line x1="200" y1="240" x2="200" y2="400"/>
+    <line x1="200" y1="240" x2="60" y2="400"/>
+    <line x1="200" y1="240" x2="340" y2="400"/>
+    <line x1="200" y1="240" x2="-80" y2="400"/>
+    <line x1="200" y1="240" x2="480" y2="400"/>
+  </g>
+  <g fill="#0a0525">
+    <rect x="18" y="150" width="34" height="90"/>
+    <rect x="60" y="120" width="26" height="120"/>
+    <rect x="330" y="135" width="30" height="105"/>
+    <rect x="368" y="165" width="24" height="75"/>
+  </g>
+  <g stroke="#00e5ff" stroke-width="2" opacity="0.9" filter="url(#glow)">
+    <path d="M18 150 h34 v90" fill="none"/>
+    <path d="M60 120 h26 v120" fill="none"/>
+  </g>
+  <g stroke="#ff2bd0" stroke-width="2" opacity="0.9" filter="url(#glow)">
+    <path d="M330 135 h30 v105" fill="none"/>
+    <path d="M368 165 h24 v75" fill="none"/>
+  </g>
+</svg>
