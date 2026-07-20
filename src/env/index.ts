@@ -717,6 +717,21 @@ class LightGroup {
   }
 }
 
+// Per-environment visual presets approximating official stages (selected by Info.dat _environmentName)
+const ENV_PRESETS: Record<string, any> = {
+  DefaultEnvironment:   {},
+  TriangleEnvironment:  { ringN: 14, ringSize: 9, spacing: 7, bg: 0x040108, fog: 0x08020e },
+  NiceEnvironment:      { bg: 0x030307, sunScale: 80 },
+  BigMirrorEnvironment: { bg: 0x010208, fog: 0x030614, ringN: 10, ringSize: 13, spacing: 11, laserX: 12, mirror: true },
+  KDAEnvironment:       { bg: 0x0a0404, fog: 0x140806, sunColor: 0xff7a2b, sunScale: 90 },
+  BTSEnvironment:       { bg: 0x070109, fog: 0x0e0312, ringN: 14, ringSize: 12, spacing: 8, sunColor: 0xff2bd0, sunScale: 85, sunY: 12, laserN: 8, laserX: 14 },
+  BillieEnvironment:    { bg: 0x02070a, fog: 0x04121a, ringN: 0, sunColor: 0xffe9a0, sunScale: 120, sunY: 14, laserN: 10, laserX: 10, floor: 0x03141c },
+  PanicEnvironment:     { bg: 0x030a04, fog: 0x081408, ringN: 12, ringSize: 10, spacing: 10, sunColor: 0x8aff5a, laserN: 7 },
+  RocketEnvironment:    { bg: 0x040308, fog: 0x0a0614, ringN: 16, ringSize: 7.5, spacing: 6, ringY: 2.6, sunColor: 0xff9d2b, sunScale: 70 },
+  OriginsEnvironment:   { bg: 0x020609, fog: 0x051019, ringSize: 12 },
+  DragonsEnvironment:   { bg: 0x050208, fog: 0x0b0512, ringN: 14, spacing: 7 },
+}
+
 class OfficialEnv extends BaseEnv {
   palNormal: { L: THREE.Color, R: THREE.Color, W: THREE.Color }
   palBoost: { L: THREE.Color, R: THREE.Color, W: THREE.Color }
@@ -729,10 +744,13 @@ class OfficialEnv extends BaseEnv {
   laserSpeed: { left: number, right: number }
   laserAngle: { left: number, right: number }
   _beatCount: number
-  constructor(scene: THREE.Scene, cl: number, cr: number) {
+  P: any
+  constructor(scene: THREE.Scene, cl: number, cr: number, envName?: string) {
     super(scene, cl, cr)
-    scene.background = new THREE.Color(0x010104)
-    scene.fog = new THREE.Fog(0x02020a, 30, 230)
+    const P = ENV_PRESETS[envName || ''] || {}
+    this.P = P
+    scene.background = new THREE.Color(P.bg ?? 0x010104)
+    scene.fog = new THREE.Fog(P.fog ?? 0x02020a, 30, 230)
 
     this.palNormal = { L: new THREE.Color(cl), R: new THREE.Color(cr), W: new THREE.Color(0xdfe6ff) }
     this.palBoost = {
@@ -793,19 +811,22 @@ class OfficialEnv extends BaseEnv {
       map: glowTex, color: 0x000000, transparent: true,
       blending: THREE.AdditiveBlending, depthWrite: false,
     })
+    if (P.sunColor != null) sunMat.color.set(0x000000) // driven by group; tint via palette W below
     const sun = new THREE.Sprite(sunMat)
-    sun.scale.set(65, 65, 1)
-    sun.position.set(0, 6, -175)
+    const sunScale = P.sunScale ?? 65
+    sun.scale.set(sunScale, sunScale, 1)
+    sun.position.set(0, P.sunY ?? 6, -175)
     this.group.add(sun)
+    if (P.sunColor != null) this.palNormal.W = new THREE.Color(P.sunColor)
     this.groups.center.add(stripMat, 1)
     this.groups.center.add(sunMat, 0.22)
 
     // -- Ring tunnel (type 1 lights, type 8 spin, type 9 zoom) --
     this.rings = []
-    this.ringSpacing = 9
-    this.ringSpacingTarget = 9
-    const RING_N = 12
-    const S = 11, F = 0.45
+    this.ringSpacing = P.spacing ?? 9
+    this.ringSpacingTarget = this.ringSpacing
+    const RING_N = P.ringN ?? 12
+    const S = P.ringSize ?? 11, F = 0.45
     const frameMat = new THREE.MeshBasicMaterial({ color: 0x07080e })
     for (let i = 0; i < RING_N; i++) {
       const g = new THREE.Group()
@@ -825,7 +846,7 @@ class OfficialEnv extends BaseEnv {
         tube.position.set(x * (1 - F / S * 2), y * (1 - F / S * 2), 0.28)
         g.add(tube)
       }
-      g.position.set(0, 3.2, -22 - i * this.ringSpacing)
+      g.position.set(0, P.ringY ?? 3.2, -22 - i * this.ringSpacing)
       this.group.add(g)
       this.rings.push({ g, angle: 0, target: 0, z: g.position.z, zTarget: g.position.z })
       this.groups.ring.add(tubeMat, 1 - i * 0.03)
@@ -851,11 +872,13 @@ class OfficialEnv extends BaseEnv {
     for (const side of ['left', 'right']) {
       const sgn = side === 'left' ? -1 : 1
       const mat = addMat()
-      for (let i = 0; i < 6; i++) {
+      const laserN = P.laserN ?? 6
+      const laserX = P.laserX ?? 14
+      for (let i = 0; i < laserN; i++) {
         const geo = new THREE.BoxGeometry(0.07, 70, 0.07)
         geo.translate(0, 30, 0)
         const beam = new THREE.Mesh(geo, mat)
-        beam.position.set(sgn * (14 + i * 2.2), -1.5, -55 - i * 13)
+        beam.position.set(sgn * (laserX + i * 2.2), -1.5, -55 - i * (78 / laserN))
         this.group.add(beam)
         this.sideLasers[side].push({ beam, phase: i * 0.55, dir: i % 2 ? 1 : -1 })
       }
@@ -874,7 +897,8 @@ class OfficialEnv extends BaseEnv {
   }
 
   toggleZoom() {
-    this.ringSpacingTarget = this.ringSpacingTarget > 11 ? 9 : 15
+    const base = this.P?.spacing ?? 9
+    this.ringSpacingTarget = this.ringSpacingTarget > base * 1.2 ? base : base * 1.65
     this.rings.forEach((r, i) => { r.zTarget = -22 - i * this.ringSpacingTarget })
   }
 
@@ -1144,14 +1168,14 @@ class ShrineEnv extends BaseEnv {
   }
 }
 
-export function createEnv(id: string, scene: THREE.Scene, colorL: number, colorR: number): BaseEnv {
+export function createEnv(id: string, scene: THREE.Scene, colorL: number, colorR: number, envName?: string): BaseEnv {
   switch (id) {
     case 'neon': return new NeonEnv(scene, colorL, colorR)
     case 'ink': return new InkEnv(scene, colorL, colorR)
     case 'space': return new SpaceEnv(scene, colorL, colorR)
     case 'miku': return new MikuEnv(scene, colorL, colorR)
     case 'ghost': return new GhostEnv(scene, colorL, colorR)
-    case 'official': return new OfficialEnv(scene, colorL, colorR)
+    case 'official': return new OfficialEnv(scene, colorL, colorR, envName)
     case 'shrine': return new ShrineEnv(scene, colorL, colorR)
   }
   return new BaseEnv(scene, colorL, colorR)

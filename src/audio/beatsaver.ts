@@ -13,7 +13,15 @@ export const THEME_ENV: Record<string, string> = {
 
 export async function searchBeatSaver(query: string, page = 0): Promise<BeatSaverMapInfo[]> {
   const q = encodeURIComponent(query)
-  const url = `${API}/search/text/${page}?q=${q}&sortOrder=Latest`
+  return fetchMapList(`${API}/search/text/${page}?q=${q}&sortOrder=Latest`)
+}
+
+/** Browse without a query (used by the VR menu): top rated or latest maps. */
+export async function browseBeatSaver(sort: 'Rating' | 'Latest' = 'Rating', page = 0): Promise<BeatSaverMapInfo[]> {
+  return fetchMapList(`${API}/search/text/${page}?sortOrder=${sort}`)
+}
+
+async function fetchMapList(url: string): Promise<BeatSaverMapInfo[]> {
   const res = await fetch(url)
   if (!res.ok) throw new Error(`Search failed: ${res.status}`)
   const data = await res.json()
@@ -306,6 +314,7 @@ async function parseZipManually(data: Uint8Array, mapData: any, coverBlob?: Blob
     diff: cur.label,
     diffList,
     env: THEME_ENV[mapData.id] || 'official',
+    envName: info._environmentName || undefined,
     speed: 19,
     colorL, colorR,
     envColorL: sc.envL, envColorR: sc.envR,

@@ -6,7 +6,7 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
 import { Synth, MusicPlayer } from '../audio/Synth'
 import { SONGS } from '../audio/songs'
-import { searchBeatSaver, downloadBeatMap, loadBuiltinMap } from '../audio/beatsaver'
+import { searchBeatSaver, browseBeatSaver, downloadBeatMap, loadBuiltinMap } from '../audio/beatsaver'
 import { saveMap, loadAllMaps, deleteMap } from '../audio/storage'
 import { analyzeAudioBuffer } from '../audio/analyzer'
 import { initTextures, makeEnvMap } from '../game/Textures'
@@ -560,7 +560,7 @@ export function useGame() {
     clearPlayfield()
 
     if (env) env.dispose()
-    env = createEnv(meta.value.env, scene, (meta.value as any).envColorL ?? meta.value.colorL, (meta.value as any).envColorR ?? meta.value.colorR)
+    env = createEnv(meta.value.env, scene, (meta.value as any).envColorL ?? meta.value.colorL, (meta.value as any).envColorR ?? meta.value.colorR, (meta.value as any).envName)
     env.hasLightEvents = (G.song.lights?.length || 0) > 0
 
     if (saberL) saberL.dispose()
@@ -1412,6 +1412,125 @@ export function useGame() {
     return g
   }
 
+  // Generic VR card (canvas texture) with an on-click action
+  function _makeVRCard(main: string, sub: string, foot: string, accent: string, act: () => void) {
+    const cc = document.createElement('canvas')
+    cc.width = 512; cc.height = 256
+    const cg = cc.getContext('2d')
+    cg.fillStyle = 'rgba(6,8,18,0.95)'
+    cg.fillRect(0, 0, 512, 256)
+    cg.fillStyle = accent
+    cg.globalAlpha = 0.08
+    cg.fillRect(0, 0, 512, 256)
+    cg.globalAlpha = 1
+    cg.strokeStyle = accent
+    cg.lineWidth = 2
+    cg.globalAlpha = 0.4
+    cg.strokeRect(1, 1, 510, 254)
+    cg.globalAlpha = 1
+    cg.textAlign = 'center'
+    cg.fillStyle = '#ffffff'
+    cg.font = 'bold 34px "Rajdhani", "PingFang SC", sans-serif'
+    cg.fillText(main.length > 16 ? main.slice(0, 15) + '…' : main, 256, 90)
+    cg.fillStyle = accent
+    cg.font = '18px "Rajdhani", "PingFang SC", sans-serif'
+    cg.fillText(sub.length > 26 ? sub.slice(0, 25) + '…' : sub, 256, 130)
+    cg.fillStyle = '#aaaacc'
+    cg.font = '20px "Rajdhani", "PingFang SC", sans-serif'
+    cg.fillText(foot, 256, 170)
+    const tex = new THREE.CanvasTexture(cc)
+    const card = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.2, 0.6),
+      new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, side: THREE.DoubleSide }),
+    )
+    card.userData = { act }
+    return card
+  }
+
+  function _placeVRCards(cards: any[]) {
+    const cardsPerRow = 4
+    cards.forEach((card, i) => {
+      const row = Math.floor(i / cardsPerRow)
+      const col = i % cardsPerRow
+      card.position.set(col * 1.4 - 1.95, 0.35 - row * 0.7, 0)
+      vrMenuOrigin.add(card)
+      vrMenuItems.push(card)
+    })
+  }
+
+  function clearVRMenuCards() {
+    for (const c of vrMenuItems) {
+      vrMenuOrigin.remove(c)
+      c.geometry.dispose()
+      if (c.material.map) c.material.map.dispose()
+      c.material.dispose()
+    }
+    vrMenuItems = []
+  }
+
+  // Song grid + a BeatSaver browser entry card
+  function fillVRMenuSongs() {
+    clearVRMenuCards()
+    const cards: any[] = SONGS.map((s, i) => {
+      const accent = '#' + s.colorR.toString(16).padStart(6, '0')
+      return _makeVRCard(s.name, s.en, s.bpm + ' BPM  ·  ' + s.diff, accent, () => {
+        startSong(i)
+        cleanupVRMenu()
+      })
+    })
+    cards.push(_makeVRCard('BEATSAVER', '社区谱面 · 浏览下载', 'BROWSE & DOWNLOAD', '#ffd76e', () => vrBrowserCats()))
+    _placeVRCards(cards)
+  }
+
+  // VR BeatSaver browser: preset categories → results → laser-click download (no keyboard needed)
+  function vrBrowserCats() {
+    clearVRMenuCards()
+    const cats: [string, string, () => void][] = [
+      ['热门 TOP', 'Rating 最高', () => vrBrowserFetch(() => browseBeatSaver('Rating'))],
+      ['最新 LATEST', '新上架谱面', () => vrBrowserFetch(() => browseBeatSaver('Latest'))],
+      ['YOASOBI', '快捷搜索', () => vrBrowserFetch(() => searchBeatSaver('YOASOBI'))],
+      ['Camellia', '快捷搜索', () => vrBrowserFetch(() => searchBeatSaver('Camellia'))],
+      ['千本桜', '快捷搜索', () => vrBrowserFetch(() => searchBeatSaver('千本桜'))],
+      ['アイドル', '快捷搜索', () => vrBrowserFetch(() => searchBeatSaver('アイドル'))],
+      ['米津玄師', '快捷搜索', () => vrBrowserFetch(() => searchBeatSaver('米津玄師'))],
+      ['← 返回歌单', 'BACK', () => fillVRMenuSongs()],
+    ]
+    _placeVRCards(cats.map(([main, sub, act]) => _makeVRCard(main, sub, '', '#7fdcff', act)))
+  }
+
+  function _vrBrowserMessage(text: string, backTo?: () => void) {
+    clearVRMenuCards()
+    const cards = [_makeVRCard(text, '', '', '#7fdcff', () => {})]
+    if (backTo) cards.push(_makeVRCard('← 返回', 'BACK', '', '#ff6ec7', backTo))
+    _placeVRCards(cards)
+  }
+
+  async function vrBrowserFetch(fetcher: () => Promise<any[]>) {
+    _vrBrowserMessage('加载中…')
+    try {
+      const list = await fetcher()
+      if (state.value !== 'vrmenu') return
+      if (!list.length) { _vrBrowserMessage('没有结果', () => vrBrowserCats()); return }
+      clearVRMenuCards()
+      const cards = list.slice(0, 7).map(r =>
+        _makeVRCard(r.songName || r.name, r.songAuthor || r.levelAuthor || '', `${Math.round(r.bpm)} BPM · ▲${r.upvotes}`, '#7fdcff', () => vrBrowserDownload(r)))
+      cards.push(_makeVRCard('← 返回', 'BACK', '', '#ff6ec7', () => vrBrowserCats()))
+      _placeVRCards(cards)
+    } catch (e) {
+      if (state.value === 'vrmenu') _vrBrowserMessage('加载失败', () => vrBrowserCats())
+    }
+  }
+
+  async function vrBrowserDownload(r: any) {
+    _vrBrowserMessage(`下载中 ${String(r.songName || r.name).slice(0, 12)}…`)
+    try {
+      await downloadSong(r)
+      if (state.value === 'vrmenu') fillVRMenuSongs()
+    } catch (e) {
+      if (state.value === 'vrmenu') _vrBrowserMessage('下载失败', () => vrBrowserCats())
+    }
+  }
+
   function buildVRMenu() {
     if (vrMenuOrigin) return
     log('buildVRMenu', 'start')
@@ -1435,54 +1554,7 @@ export function useGame() {
     title.position.y = 1.1
     vrMenuOrigin.add(title)
 
-    // Song cards
-    vrMenuItems = []
-    const cardsPerRow = 4
-    const CARD_COLORS = SONGS.map(s => '#' + s.colorR.toString(16).padStart(6, '0'))
-    SONGS.forEach((s, i) => {
-      const row = Math.floor(i / cardsPerRow)
-      const col = i % cardsPerRow
-      const cc = document.createElement('canvas')
-      cc.width = 512; cc.height = 256
-      const cg = cc.getContext('2d')
-      const accent = CARD_COLORS[i]
-      
-      cg.fillStyle = 'rgba(6,8,18,0.95)'
-      cg.fillRect(0, 0, 512, 256)
-      
-      cg.fillStyle = accent
-      cg.globalAlpha = 0.08
-      cg.fillRect(0, 0, 512, 256)
-      cg.globalAlpha = 1
-      
-      cg.strokeStyle = accent
-      cg.lineWidth = 2
-      cg.globalAlpha = 0.4
-      cg.strokeRect(1, 1, 510, 254)
-      cg.globalAlpha = 1
-      
-      cg.font = 'bold 34px "Rajdhani", sans-serif'
-      cg.textAlign = 'center'
-      cg.fillStyle = '#ffffff'
-      cg.fillText(s.name, 256, 90)
-      
-      cg.font = '18px "Rajdhani", sans-serif'
-      cg.fillStyle = accent
-      cg.fillText(s.en, 256, 130)
-      
-      cg.font = '20px "Rajdhani", sans-serif'
-      cg.fillStyle = '#aaaacc'
-      cg.fillText(s.bpm + ' BPM  ·  ' + s.diff, 256, 170)
-      const tex = new THREE.CanvasTexture(cc)
-      const card = new THREE.Mesh(
-        new THREE.PlaneGeometry(1.2, 0.6),
-        new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, side: THREE.DoubleSide }),
-      )
-      card.position.set(col * 1.4 - 1.95, 0.35 - row * 0.7, 0)
-      card.userData = { songIdx: i, baseScale: 1 }
-      vrMenuOrigin.add(card)
-      vrMenuItems.push(card)
-    })
+    fillVRMenuSongs()
 
     // Laser pointers (left=red, right=cyan like real Beat Saber)
     const laserGeo = new THREE.CylinderGeometry(0.006, 0.006, 1, 4)
@@ -1662,10 +1734,10 @@ export function useGame() {
       }
       if (triggerPressed && !_vrTriggerDown[hand] && hovered >= 0 && _vrMenuCooldown <= 0) {
         _vrTriggerDown[hand] = true
-        log('trigger-select', { hovered, song: SONGS[hovered].name, hand })
+        log('trigger-select', { hovered, hand })
         if (synth) synth.sfxClick()
-        startSong(hovered)
-        cleanupVRMenu()
+        const act = vrMenuItems[hovered]?.userData?.act
+        if (act) act()
         return
       }
       _vrTriggerDown[hand] = triggerPressed

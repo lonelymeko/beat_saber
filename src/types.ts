@@ -84,6 +84,8 @@ export interface Song {
   bpm: number
   diff: string
   env: string
+  /** official environment name from Info.dat (stage visual preset) */
+  envName?: string
   speed: number
   colorL: number
   colorR: number

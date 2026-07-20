@@ -287,6 +287,14 @@ onUnmounted(() => {
           IMPORT · 导入音乐
         </div>
         <div
+          v-if="game.SONGS[selectedIdx] && game.SONGS[selectedIdx].id && game.SONGS[selectedIdx].id.startsWith('bs_') && !game.SONGS[selectedIdx].builtin"
+          class="vr-btn del-btn"
+          @click="game.uiClick(); game.deleteDownloadedSong(selectedIdx); selectedIdx = 0"
+          @mouseenter="game.uiHover()"
+        >
+          删除此谱面 · DELETE
+        </div>
+        <div
           class="vr-btn bs-open-btn"
           @click="game.uiClick(); bsShowSearch = true"
           @mouseenter="game.uiHover()"
@@ -311,10 +319,24 @@ onUnmounted(() => {
   <!-- BeatSaver search overlay -->
   <div v-if="bsShowSearch" class="bs-overlay" @click.self="bsShowSearch = false; bsResults = []; bsError = ''">
     <div class="bs-panel">
-      <div class="bs-header">BEATSAVER SEARCH</div>
+      <div class="bs-header">
+        <div class="bs-title">
+          <span class="bs-t-red">BEAT</span><span class="bs-t-blue">SAVER</span><span class="bs-t-cn"> · 社区谱面</span>
+        </div>
+        <div
+          class="bs-close"
+          @mouseenter="game.uiHover()"
+          @click="game.uiClick(); bsShowSearch = false; bsResults = []; bsError = ''"
+        >×</div>
+      </div>
       <div class="bs-input-row">
-          <input v-model="bsQuery" class="bs-input" placeholder="搜索 或 输入谱面ID（如 4f454）直接下载..." @keyup.enter="doSearch(bsQuery)" />
-          <button class="bs-btn" @click="doSearch(bsQuery)" :disabled="bsLoading || !bsQuery.trim()">
+        <input v-model="bsQuery" class="bs-input" placeholder="搜索 或 输入谱面ID（如 4f454）直接下载..." @keyup.enter="doSearch(bsQuery)" />
+        <button
+          class="bs-btn"
+          @mouseenter="game.uiHover()"
+          @click="game.uiClick(); doSearch(bsQuery)"
+          :disabled="bsLoading || !bsQuery.trim()"
+        >
           {{ bsLoading ? '...' : 'SEARCH' }}
         </button>
       </div>
@@ -323,45 +345,53 @@ onUnmounted(() => {
         <div class="bs-progress-bar"><div class="bs-progress-fill" :style="{ width: game.downloadProgress.value.pct + '%' }"></div></div>
       </div>
       <div v-if="bsError" class="bs-error">{{ bsError }}</div>
-      <div class="bs-popular-section">
-        <div class="bs-section-label">🎤 歌手</div>
-        <div class="bs-popular-grid">
+      <div class="bs-body">
+        <div v-if="bsResults.length" class="bs-results">
+          <div class="bs-section-label">{{ bsSearchLabel ? '结果 · ' + bsSearchLabel : 'RESULTS' }}</div>
           <div
-            v-for="q in popularArtists" :key="'a-'+q"
-            class="bs-popular-card artist"
-            @click="doQuickSearch(q)"
+            v-for="r in bsResults" :key="r.id"
+            class="bs-result"
+            :class="{ busy: bsDownloading === r.id }"
+            @mouseenter="game.uiHover()"
+            @click="bsDownloading ? null : (game.uiClick(), doDownload(r))"
           >
-            <div class="bsp-name">{{ q }}</div>
-            <div class="bsp-desc">搜热门谱面</div>
+            <div class="bsr-cover" :style="r.coverUrl ? { backgroundImage: 'url(' + r.coverUrl + ')' } : {}"></div>
+            <div class="bsr-info">
+              <div class="bsr-name">{{ r.songName }}</div>
+              <div class="bsr-author">{{ r.songAuthor || r.levelAuthor }}</div>
+            </div>
+            <div class="bsr-meta">
+              <div class="bsr-bpm">{{ Math.round(r.bpm) }} <span>BPM</span></div>
+              <div class="bsr-up">↑{{ r.upvotes }}</div>
+            </div>
+            <div class="bsr-dl">{{ bsDownloading === r.id ? '下载中…' : '下载 DOWNLOAD' }}</div>
           </div>
         </div>
-      </div>
-      <div class="bs-popular-section">
-        <div class="bs-section-label">🎵 热门曲目</div>
-        <div class="bs-popular-grid">
-          <div
-            v-for="q in popularSongs" :key="'s-'+q"
-            class="bs-popular-card"
-            @click="doQuickSearch(q)"
-          >
-            <div class="bsp-name">{{ q }}</div>
+        <template v-else>
+          <div class="bs-popular-section">
+            <div class="bs-section-label">歌手</div>
+            <div class="bs-pills">
+              <button
+                v-for="q in popularArtists" :key="'a-'+q"
+                class="bs-pill artist"
+                @mouseenter="game.uiHover()"
+                @click="game.uiClick(); doQuickSearch(q)"
+              >{{ q }}</button>
+            </div>
           </div>
-        </div>
+          <div class="bs-popular-section">
+            <div class="bs-section-label">热门曲目</div>
+            <div class="bs-pills">
+              <button
+                v-for="q in popularSongs" :key="'s-'+q"
+                class="bs-pill"
+                @mouseenter="game.uiHover()"
+                @click="game.uiClick(); doQuickSearch(q)"
+              >{{ q }}</button>
+            </div>
+          </div>
+        </template>
       </div>
-      <div v-if="bsResults.length" class="bs-results">
-        <div class="bs-section-label">{{ bsSearchLabel ? '结果: ' + bsSearchLabel : 'Results' }}</div>
-        <div
-          v-for="r in bsResults" :key="r.id"
-          class="bs-result"
-          :class="{ busy: bsDownloading === r.id }"
-          @click="bsDownloading ? null : doDownload(r)"
-        >
-          <div class="bsr-name">{{ r.songName }}</div>
-          <div class="bsr-author">{{ r.songAuthor || r.levelAuthor }}</div>
-          <div class="bsr-meta">{{ Math.round(r.bpm) }} BPM · {{ r.diffs?.[0]?.difficulty || 'Standard' }} · ↑{{ r.upvotes }}</div>
-        </div>
-      </div>
-      <div class="bs-close" @click="bsShowSearch = false; bsResults = []; bsError = ''">×</div>
     </div>
   </div>
 
