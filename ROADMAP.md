@@ -87,6 +87,10 @@
 - 自定义环境 → 解析 `Environment.dat` 文件 → `GLTFLoader` 加载模型
 - Chroma 扩展 → `_customData._color` 按音符/墙壁独立着色
 
+**主题场景（已做的替代方案）**：
+- [x] Vivify 谱面的 Unity 资源包无法在 Web 加载 → 为知名谱面手工重建主题场景,`THEME_ENV` 按 BeatSaver id 映射
+- [x] `ShrineEnv`(4f454 Reply 辉夜姬):鸟居剪影+背光、海上漂浮纸灯笼×64(事件驱动明暗/摇摆)、暗橄榄浓雾、压顶云幕、海面波光
+
 ### 4. Noodle Extensions / Chroma 支持（Chroma 颜色部分 ✅）
 - [x] 谱面级自定义颜色：Info.dat `_customData._colorLeft/_colorRight/_obstacleColor`(SongCore 约定,按选中难度匹配)→ 音符/军刀/舞台灯光整体换色
 - [x] Chroma 逐音符颜色:v3 `customData.color` / v2 `_customData._color` → 按色缓存金属材质

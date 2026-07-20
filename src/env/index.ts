@@ -929,6 +929,218 @@ class OfficialEnv extends BaseEnv {
   }
 }
 
+// ===== Shrine / Kaguya theme (torii gate + sea lanterns, heavy warm mist) =====
+// Hand-built approximation of the Vivify "Reply" stage: olive-dark fog, a big torii
+// silhouette backlit far ahead, and drifting paper lanterns over a dark sea.
+class ShrineEnv extends BaseEnv {
+  groups: { lantern: LightGroup, torii: LightGroup, left: LightGroup, right: LightGroup, back: LightGroup }
+  pal: { L: THREE.Color, R: THREE.Color, W: THREE.Color }
+  lanterns: { g: THREE.Group, mat: THREE.MeshBasicMaterial, glow: THREE.SpriteMaterial, phase: number, baseY: number, side: number, spd: number }[]
+  toriiGlow: THREE.SpriteMaterial
+  backGlow: THREE.SpriteMaterial
+  glint: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>
+  clouds: { m: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>, phase: number }[]
+  sway: number
+  drift: number
+
+  constructor(scene: THREE.Scene, cl: number, cr: number) {
+    super(scene, cl, cr)
+    scene.background = new THREE.Color(0x0a0b04)
+    scene.fog = new THREE.Fog(0x13130a, 10, 150)
+
+    this.pal = { L: new THREE.Color(cl), R: new THREE.Color(cr), W: new THREE.Color(0xffdf8a) }
+    this.groups = {
+      lantern: new LightGroup(), torii: new LightGroup(),
+      left: new LightGroup(), right: new LightGroup(), back: new LightGroup(),
+    }
+    this.sway = 0
+    this.drift = 1
+
+    // Dark sea
+    const sea = new THREE.Mesh(
+      new THREE.PlaneGeometry(360, 300),
+      new THREE.MeshBasicMaterial({ color: 0x04050a }),
+    )
+    sea.rotation.x = -Math.PI / 2
+    sea.position.set(0, -0.06, -120)
+    this.group.add(sea)
+    const glintTex = canvasTex(64, 512, (g) => {
+      const gr = g.createLinearGradient(0, 0, 64, 0)
+      gr.addColorStop(0, 'rgba(255,220,140,0)')
+      gr.addColorStop(0.5, 'rgba(255,220,140,0.7)')
+      gr.addColorStop(1, 'rgba(255,220,140,0)')
+      g.fillStyle = gr
+      for (let y = 0; y < 512; y += 12) g.fillRect(0, y, 64, 6)
+    })
+    this.glint = new THREE.Mesh(
+      new THREE.PlaneGeometry(10, 90),
+      new THREE.MeshBasicMaterial({ map: glintTex, transparent: true, opacity: 0.16, blending: THREE.AdditiveBlending, depthWrite: false }),
+    )
+    this.glint.rotation.x = -Math.PI / 2
+    this.glint.position.set(0, 0.02, -55)
+    this.group.add(this.glint)
+
+    // Torii gate silhouette
+    const torii = new THREE.Group()
+    const dark = new THREE.MeshBasicMaterial({ color: 0x1d0b06 })
+    ;[-9, 9].forEach(x => {
+      const pillar = new THREE.Mesh(new THREE.BoxGeometry(1.9, 17, 1.9), dark)
+      pillar.position.set(x, 8.5, 0)
+      pillar.rotation.z = x < 0 ? 0.035 : -0.035
+      torii.add(pillar)
+    })
+    const kasagi = new THREE.Mesh(new THREE.BoxGeometry(27, 2, 2.3), dark)
+    kasagi.position.y = 17.6
+    torii.add(kasagi)
+    const kasagiTop = new THREE.Mesh(new THREE.BoxGeometry(28.5, 0.9, 2.5), dark)
+    kasagiTop.position.y = 18.9
+    torii.add(kasagiTop)
+    const shimaki = new THREE.Mesh(new THREE.BoxGeometry(23, 1, 1.9), dark)
+    shimaki.position.y = 15.9
+    torii.add(shimaki)
+    const nuki = new THREE.Mesh(new THREE.BoxGeometry(21.5, 0.95, 1.5), dark)
+    nuki.position.y = 11.6
+    torii.add(nuki)
+    const gakuzuka = new THREE.Mesh(new THREE.BoxGeometry(1.1, 3.4, 1.2), dark)
+    gakuzuka.position.y = 13.7
+    torii.add(gakuzuka)
+    torii.position.set(0, 0, -50)
+    this.group.add(torii)
+
+    const glowTex = canvasTex(256, 256, (g) => {
+      const gr = g.createRadialGradient(128, 128, 10, 128, 128, 128)
+      gr.addColorStop(0, 'rgba(255,214,120,0.85)')
+      gr.addColorStop(0.4, 'rgba(255,190,90,0.28)')
+      gr.addColorStop(1, 'rgba(255,170,70,0)')
+      g.fillStyle = gr; g.fillRect(0, 0, 256, 256)
+    })
+    this.toriiGlow = new THREE.SpriteMaterial({
+      map: glowTex, color: 0xffca70, transparent: true, opacity: 0.4,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    })
+    const tg = new THREE.Sprite(this.toriiGlow)
+    tg.scale.set(58, 42, 1)
+    tg.position.set(0, 10, -56)
+    this.group.add(tg)
+    this.backGlow = new THREE.SpriteMaterial({
+      map: glowTex, color: 0xd9a24f, transparent: true, opacity: 0.22,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    })
+    const bg = new THREE.Sprite(this.backGlow)
+    bg.scale.set(150, 70, 1)
+    bg.position.set(0, 12, -90)
+    this.group.add(bg)
+
+    // Floating paper lanterns over the sea
+    this.lanterns = []
+    const paperTex = canvasTex(64, 64, (g) => {
+      g.fillStyle = '#ffe9b0'; g.fillRect(0, 0, 64, 64)
+      g.fillStyle = 'rgba(120,70,20,0.35)'
+      g.fillRect(0, 0, 64, 5); g.fillRect(0, 59, 64, 5)
+      g.fillRect(0, 30, 64, 2)
+    })
+    const lanternGlowTex = canvasTex(128, 128, (g) => {
+      const gr = g.createRadialGradient(64, 64, 6, 64, 64, 64)
+      gr.addColorStop(0, 'rgba(255,225,140,0.9)')
+      gr.addColorStop(0.5, 'rgba(255,205,110,0.28)')
+      gr.addColorStop(1, 'rgba(255,190,90,0)')
+      g.fillStyle = gr; g.fillRect(0, 0, 128, 128)
+    })
+    for (let i = 0; i < 64; i++) {
+      const side = Math.random() < 0.5 ? -1 : 1
+      const s = 0.28 + Math.random() * 0.5
+      const mat = new THREE.MeshBasicMaterial({ map: paperTex, color: 0xffe2a0 })
+      const box = new THREE.Mesh(new THREE.BoxGeometry(s, s * (1 + Math.random() * 0.3), s), mat)
+      const glow = new THREE.SpriteMaterial({
+        map: lanternGlowTex, transparent: true, opacity: 0.55,
+        blending: THREE.AdditiveBlending, depthWrite: false,
+      })
+      const sp = new THREE.Sprite(glow)
+      sp.scale.set(s * 4.2, s * 4.2, 1)
+      const g = new THREE.Group()
+      g.add(box); g.add(sp)
+      const baseY = 0.15 + Math.pow(Math.random(), 1.6) * 7
+      g.position.set(side * (3.2 + Math.random() * 26), baseY, -8 - Math.random() * 80)
+      this.group.add(g)
+      this.lanterns.push({ g, mat, glow, phase: Math.random() * 6.28, baseY, side, spd: 0.2 + Math.random() * 0.5 })
+    }
+
+    // Overhead canopy: dark mottled clouds pressing down
+    const cloudTex = canvasTex(256, 128, (g) => {
+      g.fillStyle = '#0e0e05'; g.fillRect(0, 0, 256, 128)
+      for (let i = 0; i < 26; i++) {
+        const x = Math.random() * 256, y = Math.random() * 128
+        const r = 14 + Math.random() * 34
+        const gr = g.createRadialGradient(x, y, 2, x, y, r)
+        gr.addColorStop(0, 'rgba(46,44,16,0.55)')
+        gr.addColorStop(1, 'rgba(20,20,8,0)')
+        g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2)
+      }
+    })
+    cloudTex.wrapS = cloudTex.wrapT = THREE.RepeatWrapping
+    this.clouds = []
+    for (let i = 0; i < 2; i++) {
+      const m = new THREE.Mesh(
+        new THREE.PlaneGeometry(240, 140),
+        new THREE.MeshBasicMaterial({ map: cloudTex, transparent: true, opacity: 0.92 - i * 0.25, depthWrite: false }),
+      )
+      m.rotation.x = Math.PI / 2
+      m.position.set(0, 13 + i * 4, -60)
+      this.group.add(m)
+      this.clouds.push({ m, phase: i * 2.4 })
+    }
+  }
+
+  onLightEvent(ev: LightEvent) {
+    switch (ev.type) {
+      case 0: this.groups.back.onEvent(ev.value, ev.f); break
+      case 1: this.groups.lantern.onEvent(ev.value, ev.f); break
+      case 2: this.groups.left.onEvent(ev.value, ev.f); break
+      case 3: this.groups.right.onEvent(ev.value, ev.f); break
+      case 4: this.groups.torii.onEvent(ev.value, ev.f); break
+      case 8: this.sway = 1; break
+      case 12: this.drift = Math.max(0.4, ev.value || 1); break
+      case 13: this.drift = Math.max(0.4, ev.value || 1); break
+    }
+  }
+
+  onBeat(i: number) {
+    super.onBeat(i)
+    if (this.hasLightEvents) return
+    this.groups.lantern.onEvent(i % 4 === 0 ? 2 : 1, 0.8)
+    if (i % 4 === 2) this.groups.torii.onEvent(2, 0.9)
+    if (i % 8 === 4) this.sway = 1
+  }
+
+  update(dt: number, t: number) {
+    super.update(dt, t)
+    for (const k in this.groups) this.groups[k].update(dt, this.pal)
+    this.sway *= Math.exp(-dt * 1.2)
+
+    // Warm ambient floor + event-driven boosts (a shrine never goes fully dark)
+    const gLant = 0.5 + 0.65 * this.groups.lantern.intensity
+    const gL = 0.75 + 0.6 * this.groups.left.intensity
+    const gR = 0.75 + 0.6 * this.groups.right.intensity
+    const warm = this.pal.W
+
+    for (const l of this.lanterns) {
+      const flick = 0.72 + 0.28 * Math.sin(t * 1.9 + l.phase) * (1 + this.sway * 1.5)
+      const k = Math.min(1.6, flick * gLant * (l.side < 0 ? gL : gR))
+      l.mat.color.copy(warm).multiplyScalar(0.55 + k * 0.6)
+      l.glow.opacity = 0.3 + k * 0.45
+      l.g.position.y = l.baseY + Math.sin(t * l.spd + l.phase) * (0.25 + this.sway * 0.6)
+      l.g.position.z += dt * 0.7 * this.drift
+      l.g.rotation.y += dt * 0.2
+      if (l.g.position.z > -4) l.g.position.z = -88
+    }
+
+    this.toriiGlow.opacity = 0.5 + 0.45 * this.groups.torii.intensity + this.pulse * 0.1
+    this.backGlow.opacity = 0.24 + 0.4 * this.groups.back.intensity
+    this.glint.material.opacity = 0.1 + 0.1 * Math.sin(t * 2.2) + 0.2 * this.groups.torii.intensity
+    this.clouds.forEach(c => { (c.m.material.map as THREE.Texture).offset.x += dt * 0.004; c.m.position.x = Math.sin(t * 0.03 + c.phase) * 5 })
+  }
+}
+
 export function createEnv(id: string, scene: THREE.Scene, colorL: number, colorR: number): BaseEnv {
   switch (id) {
     case 'neon': return new NeonEnv(scene, colorL, colorR)
@@ -937,6 +1149,7 @@ export function createEnv(id: string, scene: THREE.Scene, colorL: number, colorR
     case 'miku': return new MikuEnv(scene, colorL, colorR)
     case 'ghost': return new GhostEnv(scene, colorL, colorR)
     case 'official': return new OfficialEnv(scene, colorL, colorR)
+    case 'shrine': return new ShrineEnv(scene, colorL, colorR)
   }
   return new BaseEnv(scene, colorL, colorR)
 }

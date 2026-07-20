@@ -1,5 +1,6 @@
 // IndexedDB storage for downloaded beatmaps
 import type { Song } from '../types'
+import { THEME_ENV } from './beatsaver'
 
 const DB_NAME = 'beat_saber_maps'
 const DB_VERSION = 1
@@ -75,7 +76,7 @@ export async function loadAllMaps(): Promise<Song[]> {
           desc: r.desc,
           bpm: r.bpm,
           diff: r.diff,
-          env: r.env,
+          env: THEME_ENV[String(r.id).replace(/^bs_/, '')] || r.env,
           speed: r.speed,
           colorL: r.colorL,
           colorR: r.colorR,

@@ -4,6 +4,13 @@ import { LANE_X, ROW_Y, DIR_VEC } from '../game/constants'
 
 const API = 'https://api.beatsaver.com'
 
+// Hand-crafted themed environments for specific well-known maps (by BeatSaver id).
+// The showcase versions of these maps use Vivify Unity asset bundles we can't load;
+// these are our own Three.js approximations of their stages.
+export const THEME_ENV: Record<string, string> = {
+  '4f454': 'shrine', // kz - Reply (Kaguya): torii gate + sea lanterns
+}
+
 export async function searchBeatSaver(query: string, page = 0): Promise<BeatSaverMapInfo[]> {
   const q = encodeURIComponent(query)
   const url = `${API}/search/text/${page}?q=${q}&sortOrder=Latest`
@@ -340,7 +347,7 @@ async function parseZipManually(data: Uint8Array, mapData: any, coverBlob?: Blob
     desc: `谱师: ${mapData.levelAuthor || '未知'} · BPM: ${Math.round(bpm)}`,
     bpm: Math.round(bpm),
     diff: diffLabel,
-    env: 'official',
+    env: THEME_ENV[mapData.id] || 'official',
     speed: 19,
     colorL: cc.colorL ?? 0xff2b2b, colorR: cc.colorR ?? 0x2b9eff,
     cardBg: coverBlob ? `url(${URL.createObjectURL(coverBlob)}) center/cover no-repeat` : 'linear-gradient(160deg,#2b0a3d,#0e1445 55%,#032c3f)',
