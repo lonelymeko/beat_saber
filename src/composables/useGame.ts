@@ -49,6 +49,8 @@ export function useGame() {
   const xrActive = ref(false)
   const downloadProgress = ref({ stage: '', pct: 0 })
   const songListVersion = ref(0)
+  // Local song loading toast: { active, label, pct (-1 = indeterminate) }
+  const localLoad = ref({ active: false, label: '', pct: -1 })
 
   // ========== Three.js Core ==========
   let renderer, scene, camera, composer, clock
@@ -155,23 +157,32 @@ export function useGame() {
       if (state.value === 'menu') synth.startMenuMusic()
     }
     window.addEventListener('pointerdown', unlockAudio)
-    // Bundled default maps first, then saved BeatSaver maps from IndexedDB (deduped by id)
-    loadBuiltinMap('4f454', '/builtin/4f454.zip').then(song => {
-      if (!SONGS.find(existing => existing.id === song.id)) {
-        SONGS.push(song as any)
-        songListVersion.value++
-        log('builtin-map-loaded', song.name)
-      }
-    }).catch(e => console.error('builtin map load failed:', e)).finally(() => {
-      loadAllMaps().then((saved: any[]) => {
-        for (const s of saved) {
-          if (!SONGS.find(existing => existing.id === s.id)) {
-            SONGS.push(s)
-            log('loaded-saved', s.name)
-          }
+    // Load bundled + saved maps in parallel, adding songs to the list as each arrives
+    const addSong = (s: any) => {
+      if (SONGS.find(existing => existing.id === s.id)) return
+      SONGS.push(s)
+      songListVersion.value++
+    }
+    localLoad.value = { active: true, label: '读取本地歌曲…', pct: -1 }
+    loadAllMaps((song, i, total) => {
+      addSong(song)
+      localLoad.value = { active: true, label: `读取已下载歌曲 ${i}/${total}…`, pct: total ? Math.round(i / total * 100) : -1 }
+    }).catch(e => console.error('loadAllMaps failed:', e)).then(() => {
+      // Bundled map: fetch only if it isn't cached in IndexedDB yet, then cache it
+      if (SONGS.find(existing => existing.id === 'bs_4f454')) return
+      return loadBuiltinMap('4f454', '/builtin/4f454.zip', (stage, pct) => {
+        localLoad.value = {
+          active: true,
+          label: stage === 'parsing' ? '解析内置歌曲 Reply…' : '下载内置歌曲 Reply…',
+          pct: stage === 'parsing' ? -1 : pct,
         }
-        songListVersion.value++
-      }).catch(e => console.error('loadAllMaps failed:', e))
+      }).then(song => {
+        addSong(song)
+        log('builtin-map-loaded', song.name)
+        saveMap(song.id, song).catch(e => console.error('builtin saveMap failed:', e))
+      }).catch(e => console.error('builtin map load failed:', e))
+    }).finally(() => {
+      localLoad.value = { active: false, label: '', pct: -1 }
     })
     scheduleFrame()
   }
@@ -542,6 +553,7 @@ export function useGame() {
     }
     synth.stopMenuMusic()
     synth.stopPreview()
+    stopEventPreview()
     G.playToken = (G.playToken || 0) + 1
     songIdx.value = idx
     meta.value = { ...SONGS[idx] }
@@ -625,15 +637,23 @@ export function useGame() {
     if (rawBuf && (rawBuf instanceof Uint8Array || (rawBuf instanceof ArrayBuffer && !(rawBuf as any).sampleRate))) {
       G.startAt = synth.ctx.currentTime + 3.6
       const ab = rawBuf instanceof Uint8Array ? rawBuf.buffer.slice(rawBuf.byteOffset, rawBuf.byteOffset + rawBuf.byteLength) : rawBuf
-      const playTok = G.playToken
-      synth.ctx.decodeAudioData(ab, (decoded) => {
-        if (playTok !== G.playToken || state.value === 'menu' || state.value === 'vrmenu') return // superseded by a newer start/quit
-        player.loadBuffer(decoded)
+      const cached = (SONGS[idx] as any)._previewBuf
+      if (cached) {
+        // Already decoded for preview — start instantly, no re-decode
+        player.loadBuffer(cached)
         player.start(G.startAt)
-        log('audio-decoded', { duration: decoded.duration?.toFixed(1), sampleRate: decoded.sampleRate })
-      }, (err) => {
-        log('audio-decode-error', err?.message || err)
-      })
+      } else {
+        const playTok = G.playToken
+        synth.ctx.decodeAudioData(ab, (decoded) => {
+          ;(SONGS[idx] as any)._previewBuf = decoded
+          if (playTok !== G.playToken || state.value === 'menu' || state.value === 'vrmenu') return // superseded by a newer start/quit
+          player.loadBuffer(decoded)
+          player.start(G.startAt)
+          log('audio-decoded', { duration: decoded.duration?.toFixed(1), sampleRate: decoded.sampleRate })
+        }, (err) => {
+          log('audio-decode-error', err?.message || err)
+        })
+      }
     } else {
       if (rawBuf) player.loadBuffer(rawBuf)
       G.startAt = synth.ctx.currentTime + 3.6
@@ -737,15 +757,37 @@ export function useGame() {
   }
 
   // Official-style song preview: selecting a song in the menu plays a looped excerpt
+  let previewPlayer: MusicPlayer | null = null
+
+  function stopEventPreview() {
+    if (previewPlayer) { previewPlayer.stop(); previewPlayer = null }
+  }
+
   async function previewSong(idx) {
     if (state.value !== 'menu') return
     ensureAudio()
+    stopEventPreview()
     const song: any = SONGS[idx]
     const raw = song?._previewBuf || song?.internal?.buffer
-    if (!raw) { synth.stopPreview(); synth.startMenuMusic(); return }
+    if (raw) {
+      try {
+        const decoded = await synth.startPreview(raw)
+        if (decoded && !song._previewBuf) song._previewBuf = decoded
+      } catch (e) { /* keep silence */ }
+      return
+    }
+    // Built-in synth songs: play their generated event track from ~25% in
+    synth.stopPreview()
+    synth.stopMenuMusic()
     try {
-      const decoded = await synth.startPreview(raw)
-      if (decoded && !song._previewBuf) song._previewBuf = decoded
+      const data = song?.build?.()
+      if (data?.events?.length) {
+        previewPlayer = new MusicPlayer(synth)
+        previewPlayer.load(data.events)
+        const skip = (data.duration || 60) * 0.25
+        while (previewPlayer.idx < previewPlayer.events.length && previewPlayer.events[previewPlayer.idx].t < skip) previewPlayer.idx++
+        previewPlayer.start(synth.ctx.currentTime - skip)
+      }
     } catch (e) { /* keep silence */ }
   }
 
@@ -1737,6 +1779,8 @@ export function useGame() {
 
   async function enterVR() {
     if (!XR.supported || XR.active) return
+    if (synth) { synth.stopPreview() }
+    stopEventPreview()
     log('enterVR', 'requesting session')
     try {
       const session = await navigator.xr.requestSession('immersive-vr', {
@@ -1783,7 +1827,7 @@ export function useGame() {
   }
 
   return {
-    state, auto, invincible, invincibleUsed, downloadProgress, songListVersion, songIdx, score, combo, acc, mult, energy, progress, songLabel,
+    state, auto, invincible, invincibleUsed, downloadProgress, songListVersion, localLoad, songIdx, score, combo, acc, mult, energy, progress, songLabel,
     rank, rScore, rAcc, rCombo, rHits, resultsTitle, failSub,
     countdownNum, countdownVisible, xrSupported, xrActive,
     SONGS,

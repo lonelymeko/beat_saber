@@ -54,22 +54,44 @@ export async function saveMap(mapId: string, data: any): Promise<void> {
   })
 }
 
-export async function loadAllMaps(): Promise<Song[]> {
+/** Load saved maps one by one via cursor so the UI can show progress and add songs incrementally. */
+export async function loadAllMaps(onEach?: (song: Song, index: number, total: number) => void): Promise<Song[]> {
   const db = await openDB()
   return new Promise<Song[]>((resolve, reject) => {
     const tx = db.transaction('maps', 'readonly')
     const store = tx.objectStore('maps')
-    const req = store.getAll()
+    const songs: Song[] = []
+    let total = 0
+    let index = 0
+    const countReq = store.count()
+    countReq.onsuccess = () => { total = countReq.result || 0 }
+    const req = store.openCursor()
     req.onsuccess = (e) => {
-      const records = (e.target as any).result || []
-      const songs: Song[] = []
-      for (const r of records) {
-        if (!r.notes || r.notes.length === 0) {
-          deleteMap(r.id).catch(() => {})
-          continue
-        }
-        songs.push({
+      const cursor = (e.target as any).result
+      if (!cursor) { resolve(songs); return }
+      const r = cursor.value
+      index++
+      if (!r.notes || r.notes.length === 0) {
+        deleteMap(r.id).catch(() => {})
+        cursor.continue()
+        return
+      }
+      const song = recordToSong(r)
+      songs.push(song)
+      if (onEach) onEach(song, index, total)
+      cursor.continue()
+    }
+    req.onerror = (e) => reject((e.target as any).error)
+  })
+}
+
+// Bundled maps cached into IndexedDB stay non-deletable when loaded back
+const BUILTIN_IDS = new Set(['bs_4f454'])
+
+function recordToSong(r: any): Song {
+  return ({
           id: r.id,
+          builtin: BUILTIN_IDS.has(r.id),
           name: r.name,
           en: r.en,
           style: r.style,
@@ -96,12 +118,7 @@ export async function loadAllMaps(): Promise<Song[]> {
             buffer: r.audioBuffer ? new Uint8Array(r.audioBuffer) : null,
           },
           build() { return this.internal },
-        })
-      }
-      resolve(songs)
-    }
-    req.onerror = (e) => reject((e.target as any).error)
-  })
+        }) as Song
 }
 
 export async function deleteMap(mapId: string): Promise<void> {

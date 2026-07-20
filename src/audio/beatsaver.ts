@@ -140,10 +140,29 @@ async function parseBeatMapZip(buffer: Uint8Array, mapData: any, coverBlob?: Blo
 }
 
 /** Load a map zip bundled with the app (no network download, marked non-deletable). */
-export async function loadBuiltinMap(id: string, url: string): Promise<Song> {
+export async function loadBuiltinMap(id: string, url: string, onProgress?: (stage: string, pct: number) => void): Promise<Song> {
   const res = await fetch(url)
   if (!res.ok) throw new Error(`builtin map fetch failed: ${res.status}`)
-  const buffer = new Uint8Array(await res.arrayBuffer())
+  const contentLength = parseInt(res.headers.get('content-length') || '0', 10)
+  let buffer: Uint8Array
+  if (res.body && contentLength > 0) {
+    const reader = res.body.getReader()
+    const chunks: Uint8Array[] = []
+    let received = 0
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      chunks.push(value)
+      received += value.length
+      onProgress?.('loading', Math.round((received / contentLength) * 100))
+    }
+    buffer = new Uint8Array(received)
+    let off = 0
+    for (const c of chunks) { buffer.set(c, off); off += c.length }
+  } else {
+    buffer = new Uint8Array(await res.arrayBuffer())
+  }
+  onProgress?.('parsing', 100)
   const song = await parseBeatMapZip(buffer, { id }, null)
   ;(song as any).builtin = true
   return song

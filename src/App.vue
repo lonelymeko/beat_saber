@@ -152,6 +152,21 @@ onUnmounted(() => {
 <template>
   <canvas ref="canvasRef" />
 
+  <!-- Local song loading toast (official-style notification) -->
+  <div v-if="game.localLoad.value.active" id="load-toast">
+    <div class="lt-spinner"></div>
+    <div class="lt-body">
+      <div class="lt-label">{{ game.localLoad.value.label }}</div>
+      <div class="lt-bar">
+        <div
+          class="lt-fill"
+          :class="{ indet: game.localLoad.value.pct < 0 }"
+          :style="game.localLoad.value.pct >= 0 ? { width: game.localLoad.value.pct + '%' } : {}"
+        ></div>
+      </div>
+    </div>
+  </div>
+
   <!-- ============ MAIN MENU ============ -->
   <div
     id="menu"
