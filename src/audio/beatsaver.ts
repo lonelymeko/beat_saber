@@ -534,6 +534,9 @@ function parseChart(chart: any, spb: number) {
   for (const w of walls) w.t = w.t * spb
   for (const a of arcs) { a.t = a.t * spb; a.tb = a.tb * spb }
   notes.sort((a, b) => a.t - b.t)
+  // Wall-art generators emit walls grouped by pixel/column, not by time — the
+  // spawn loop requires time order, so always sort (not only when sampling)
+  walls.sort((a, b) => a.t - b.t)
   arcs.sort((a, b) => a.t - b.t)
   const lights = parseLightEvents(chart, spb)
   const noodleEvents = noodle?.events?.length ? noodle.events : undefined

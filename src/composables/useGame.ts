@@ -401,7 +401,10 @@ export function useGame() {
   const WALL_BUDGET: Record<string, number> = { low: 3500, medium: 12000, high: Infinity }
   function capDecoWalls(walls: any[], q: string): any[] {
     const cap = WALL_BUDGET[q] ?? Infinity
-    if (!walls || walls.length <= cap) return walls
+    if (!walls || !walls.length) return walls
+    // Maps stored before the always-sort parser fix may carry unsorted walls —
+    // the spawn loop needs time order, so sort here regardless of the cap
+    if (walls.length <= cap) return walls.slice().sort((a, b) => a.t - b.t)
     const gameplay = walls.filter(w => w.wx == null)
     const deco = walls.filter(w => w.wx != null)
     const keepEvery = Math.ceil(deco.length / Math.max(1, cap - gameplay.length))
