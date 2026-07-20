@@ -12,6 +12,8 @@ export interface NoteData {
   /** fractional world coords (links sit between grid cells); fall back to LANE_X[x]/ROW_Y[y] */
   wx?: number
   wy?: number
+  /** Chroma per-note color override (hex) */
+  color?: number
 }
 
 /** Arc (v3 slider) — visual guide between two notes; world coords precomputed at parse. */
@@ -37,6 +39,8 @@ export interface WallData {
   type: number
   wallScale: number
   crouch: boolean
+  /** Chroma per-wall color override (hex) */
+  color?: number
 }
 
 /**

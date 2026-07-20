@@ -218,7 +218,7 @@ async function parseZipManually(data: Uint8Array, mapData: any, coverBlob?: Blob
       // v3 format
       if (chosenDiff.colorNotes) {
         for (const n of chosenDiff.colorNotes) {
-          notes.push({ t: n.b, x: n.x, y: n.y, type: n.c, dir: n.d })
+          notes.push({ t: n.b, x: n.x, y: n.y, type: n.c, dir: n.d, color: chromaHex(n.customData?.color) })
         }
       }
       if (chosenDiff.bombNotes) {
@@ -276,13 +276,14 @@ async function parseZipManually(data: Uint8Array, mapData: any, coverBlob?: Blob
             width: ww, type: o.h === 1 ? 1 : 0,
             wallScale: (endX - startX + 0.6) / 1.15,
             crouch: o.h === 1,
+            color: chromaHex(o.customData?.color),
           })
         }
       }
     } else if (chosenDiff._notes) {
       // v2 format
       for (const n of chosenDiff._notes) {
-        notes.push({ t: n._time, x: n._lineIndex, y: n._lineLayer, type: n._type, dir: n._cutDirection })
+        notes.push({ t: n._time, x: n._lineIndex, y: n._lineLayer, type: n._type, dir: n._cutDirection, color: chromaHex(n._customData?._color) })
       }
       if (chosenDiff._obstacles) {
         const LX = [-0.9, -0.3, 0.3, 0.9]
@@ -297,6 +298,7 @@ async function parseZipManually(data: Uint8Array, mapData: any, coverBlob?: Blob
             width: ww, type: o._type,
             wallScale: (endX - startX + 0.6) / 1.15,
             crouch: o._type === 1,
+            color: chromaHex(o._customData?._color),
           })
         }
       }
@@ -318,6 +320,10 @@ async function parseZipManually(data: Uint8Array, mapData: any, coverBlob?: Blob
   console.log('[ZIP-LIGHTS]', lights.length, 'events')
   console.log('[ZIP-ARCS]', arcs.length, 'arcs,', notes.filter((n: NoteData) => n.link).length, 'chain links')
 
+  // Map-level custom colors (SongCore _customData in Info.dat)
+  const cc = customColorsFor(info, chosenName)
+  if (cc.obstacle != null) for (const w of walls) { if (w.color == null) w.color = cc.obstacle }
+
   const duration = mapData.duration || (notes.length > 0 ? notes[notes.length - 1].t + 3 : 180)
   const songName = info._songName || mapData.songName || '未知歌曲'
   const songAuthor = info._songAuthorName || mapData.songAuthor || ''
@@ -336,7 +342,7 @@ async function parseZipManually(data: Uint8Array, mapData: any, coverBlob?: Blob
     diff: diffLabel,
     env: 'official',
     speed: 19,
-    colorL: 0xff2b2b, colorR: 0x2b9eff,
+    colorL: cc.colorL ?? 0xff2b2b, colorR: cc.colorR ?? 0x2b9eff,
     cardBg: coverBlob ? `url(${URL.createObjectURL(coverBlob)}) center/cover no-repeat` : 'linear-gradient(160deg,#2b0a3d,#0e1445 55%,#032c3f)',
     coverBlob,
     audioUrl: url,
@@ -353,6 +359,37 @@ async function parseZipManually(data: Uint8Array, mapData: any, coverBlob?: Blob
 
 function clampIdx(v: number, max: number): number {
   return Math.max(0, Math.min(max, v | 0))
+}
+
+/** Chroma color ([r,g,b,(a)] array or {r,g,b} object, components may exceed 1) → hex, or undefined. */
+function chromaHex(c: any): number | undefined {
+  if (!c) return undefined
+  let r: number, g: number, b: number
+  if (Array.isArray(c)) { [r, g, b] = c } else { r = c.r; g = c.g; b = c.b }
+  if (typeof r !== 'number' || typeof g !== 'number' || typeof b !== 'number') return undefined
+  const u = (v: number) => Math.round(Math.max(0, Math.min(1, v)) * 255)
+  return (u(r) << 16) | (u(g) << 8) | u(b)
+}
+
+/** Map-level custom colors from Info.dat for the chosen difficulty (SongCore convention). */
+function customColorsFor(info: any, chosenName: string | null) {
+  const out: { colorL?: number, colorR?: number, obstacle?: number } = {}
+  if (!chosenName) return out
+  const diffMap: any = { 'expert+': 'expertplus' }
+  for (const set of info._difficultyBeatmapSets || []) {
+    for (const db of set._difficultyBeatmaps || []) {
+      const base = String(db._beatmapFilename || '').toLowerCase().replace(/\.dat$/, '')
+      let key = base.replace(/(standard|lawless|onesaber|360degree|90degree|noarrows|lightshow)$/, '')
+      key = diffMap[key] || key
+      if (key !== chosenName) continue
+      const cd = db._customData || {}
+      out.colorL = chromaHex(cd._colorLeft)
+      out.colorR = chromaHex(cd._colorRight)
+      out.obstacle = chromaHex(cd._obstacleColor)
+      return out
+    }
+  }
+  return out
 }
 
 // ===== Lighting events =====

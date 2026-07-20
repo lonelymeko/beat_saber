@@ -284,27 +284,25 @@ export class Synth {
     n.connect(f); f.connect(g); g.connect(this.music)
   }
 
-  hitBufs: { hit?: AudioBuffer; soft?: AudioBuffer } = {}
+  // Beat Saber game-extracted hit sounds: 10 random good-cut variants + last-note accents
+  hitBufs: AudioBuffer[] = []
+  lastHitBufs: AudioBuffer[] = []
   _hitLoading = false
 
   /** Load sampled hit sounds from /sfx/. Falls back to synth sfxSlash when absent. */
   loadHitSounds() {
     if (this._hitLoading) return
     this._hitLoading = true
-    for (const [key, url] of [['hit', '/sfx/hit.ogg'], ['soft', '/sfx/hit-soft.ogg']] as const) {
-      fetch(url)
-        .then(r => { if (!r.ok) throw new Error(String(r.status)); return r.arrayBuffer() })
-        .then(ab => this.ctx.decodeAudioData(ab))
-        .then(buf => { this.hitBufs[key] = buf })
-        .catch(() => {})
-    }
+    const load = (url: string, arr: AudioBuffer[]) => fetch(url)
+      .then(r => { if (!r.ok) throw new Error(String(r.status)); return r.arrayBuffer() })
+      .then(ab => this.ctx.decodeAudioData(ab))
+      .then(buf => { arr.push(buf) })
+      .catch(() => {})
+    for (let i = 1; i <= 10; i++) load(`/sfx/hit${i}.ogg`, this.hitBufs)
+    for (let i = 1; i <= 2; i++) load(`/sfx/lasthit${i}.ogg`, this.lastHitBufs)
   }
 
-  /** Sampled block-hit sound; soft variant for chain links. */
-  sfxHit(pan = 0, vol = 1, rate = 1, soft = false) {
-    const buf = soft ? (this.hitBufs.soft || this.hitBufs.hit) : this.hitBufs.hit
-    if (!buf) { this.sfxSlash(pan); return }
-    const t = this.now()
+  _playBuf(buf: AudioBuffer, pan: number, vol: number, rate: number) {
     const s = this.ctx.createBufferSource()
     s.buffer = buf
     s.playbackRate.value = rate
@@ -316,7 +314,21 @@ export class Synth {
       s.connect(p); p.connect(g)
     } else s.connect(g)
     g.connect(this.sfx)
-    s.start(t)
+    s.start(this.now())
+  }
+
+  /** Sampled block-hit sound (random official variant); soft=true for chain links. */
+  sfxHit(pan = 0, vol = 1, rate = 1, soft = false) {
+    if (!this.hitBufs.length) { this.sfxSlash(pan); return }
+    const buf = this.hitBufs[Math.floor(Math.random() * this.hitBufs.length)]
+    this._playBuf(buf, pan, soft ? vol * 0.8 : vol, rate)
+  }
+
+  /** Accented hit for the song's final note. */
+  sfxLastHit(pan = 0) {
+    if (!this.lastHitBufs.length) { this.sfxHit(pan, 1, 1); return }
+    const buf = this.lastHitBufs[Math.floor(Math.random() * this.lastHitBufs.length)]
+    this._playBuf(buf, pan, 1, 1)
   }
 
   sfxSlash(pan = 0) {

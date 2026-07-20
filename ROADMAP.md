@@ -38,6 +38,9 @@
 
 ### 工程
 - [x] 全项目 TypeScript 化（tsconfig + 类字段声明 + `src/types.ts` 共享类型，`tsc --noEmit` 通过）
+- [x] 官方式切块（两半沿挥剑平面分离 + 白热切面）替代碎渣粒子
+- [x] 官方式方块面纹理（宽厚山形箭头 + 圆点）
+- [x] 打击音效：Beat Saber 本体提取 hit1-10 随机变体 + LastHit 尾音（GameBanana 社区包），链节用降音量升调变体，无文件时回退合成音
 
 ---
 
@@ -84,15 +87,12 @@
 - 自定义环境 → 解析 `Environment.dat` 文件 → `GLTFLoader` 加载模型
 - Chroma 扩展 → `_customData._color` 按音符/墙壁独立着色
 
-### 4. Noodle Extensions / Chroma 支持
-社区谱面大量使用这两个 Mod。
-
-**Chroma**：允许每个音符/墙壁独立上色，甚至渐变
-**Noodle Extensions**：音符动画（缩放、位移、旋转、轨道曲线），墙壁穿透等
-
-**实现思路**：
-- Chroma 颜色从 `_customData._color` 读取，替换默认色
-- Noodle 动画从 `_customData._animation` 读取，用 Three.js tween 实现
+### 4. Noodle Extensions / Chroma 支持（Chroma 颜色部分 ✅）
+- [x] 谱面级自定义颜色：Info.dat `_customData._colorLeft/_colorRight/_obstacleColor`(SongCore 约定,按选中难度匹配)→ 音符/军刀/舞台灯光整体换色
+- [x] Chroma 逐音符颜色:v3 `customData.color` / v2 `_customData._color` → 按色缓存金属材质
+- [x] Chroma 逐墙颜色 + 墙体官方观感(深红半透 + 加色亮边,bloom 辉光)
+- [ ] Chroma 灯光事件颜色覆盖(`customData.color` on basicBeatmapEvents)
+- [ ] Noodle Extensions:音符动画(`_customData._animation`)、墙壁穿透
 
 ### 5. UI 增强
 - [ ] VR 暂停/结算面板做成**可视化卡片按钮**（激光指向 + 扳机点选，替代当前文字提示）

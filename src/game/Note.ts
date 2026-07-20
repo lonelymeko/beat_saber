@@ -15,9 +15,12 @@ export function setGeometries(geo) {
 
 export function createNoteMesh(d, mats, textures) {
   const g = new THREE.Group()
+  const bodyMatFor = (dd) => (dd.color != null && mats.colored)
+    ? mats.colored(dd.color)
+    : (dd.type === 0 ? mats.matL : mats.matR)
   if (d.link) {
     // Chain link: thin slice with a glowing center dot
-    const body = new THREE.Mesh(halfGeo, d.type === 0 ? mats.matL : mats.matR)
+    const body = new THREE.Mesh(halfGeo, bodyMatFor(d))
     body.scale.set(0.9, 0.62, 0.9)
     g.add(body)
     const dot = new THREE.Mesh(faceGlowGeo, textures.dotGlowMat)
@@ -37,7 +40,7 @@ export function createNoteMesh(d, mats, textures) {
     glow.scale.set(0.7, 0.7, 1)
     g.add(glow)
   } else {
-    g.add(new THREE.Mesh(noteGeo, d.type === 0 ? mats.matL : mats.matR))
+    g.add(new THREE.Mesh(noteGeo, bodyMatFor(d)))
     const rot = DIR_ROT[d.dir]
     const face = new THREE.Mesh(arrowGeo, d.dir === 8 ? textures.dotMat : textures.arrowMat)
     face.position.z = 0.258
@@ -77,12 +80,20 @@ export function createWallMesh(w, speed, hitZ) {
   const len = w.dur * speed
   const wallH = w.crouch ? 1.3 : 2.9
   const wallW = w.wallScale != null ? 1.15 * w.wallScale : 1.15
-  const m = new THREE.Mesh(new THREE.BoxGeometry(wallW, wallH, len), wallMat)
-  const edge = new THREE.LineSegments(
-    new THREE.EdgesGeometry(m.geometry),
-    new THREE.LineBasicMaterial({ color: 0xff5566, transparent: true, opacity: 0.6 }),
-  )
+  // Official look: deep translucent red body with bright glowing edges (Chroma color honored)
+  const baseCol = new THREE.Color(w.color != null ? w.color : 0xd8103c)
+  const fillMat = new THREE.MeshBasicMaterial({
+    color: baseCol, transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide,
+  })
+  const m = new THREE.Mesh(new THREE.BoxGeometry(wallW, wallH, len), fillMat)
+  const edgeCol = baseCol.clone().lerp(new THREE.Color(0xffffff), 0.35)
+  const edgeMat = new THREE.LineBasicMaterial({
+    color: edgeCol, transparent: true, opacity: 0.9,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  })
+  const edge = new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry), edgeMat)
   m.add(edge)
+  m.userData.ownMats = [fillMat, edgeMat]
   const x = w.wallScale != null ? w.side * 0.58 : w.side * 0.58
   const y = w.crouch ? 2.1 : 1.55
   m.position.set(x, y, hitZ - SPAWN_DIST)

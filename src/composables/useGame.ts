@@ -193,6 +193,7 @@ export function useGame() {
     }
   }
 
+  let coloredMatCache = new Map()
   function initSongAssets(meta) {
     const dim = (c) => new THREE.Color(c).multiplyScalar(0.55)
     const metal = (c) => new THREE.MeshStandardMaterial({
@@ -202,8 +203,24 @@ export function useGame() {
     })
     matL = metal(meta.colorL)
     matR = metal(meta.colorR)
+    coloredMatCache.forEach(m => m.dispose())
+    coloredMatCache = new Map()
 
     return { matL, matR, bombMat, textures, hotGeo }
+  }
+
+  // Chroma per-note colors: cached metal material per hex
+  function coloredMat(hex) {
+    let m = coloredMatCache.get(hex)
+    if (!m) {
+      m = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(hex).multiplyScalar(0.55), metalness: 0.88, roughness: 0.42,
+        envMap: envTex, envMapIntensity: 1.35,
+        emissive: hex, emissiveIntensity: 0.3,
+      })
+      coloredMatCache.set(hex, m)
+    }
+    return m
   }
 
   // ========== Spawn ==========
@@ -245,7 +262,7 @@ export function useGame() {
   function clearPlayfield() {
     G.notes.forEach(n => scene.remove(n.g))
     G.arcs.forEach(o => { scene.remove(o.m); o.m.geometry.dispose(); o.m.material.dispose() })
-    G.walls.forEach(w => { scene.remove(w.m); w.m.geometry.dispose() })
+    G.walls.forEach(w => { scene.remove(w.m); w.m.geometry.dispose(); (w.m.userData.ownMats || []).forEach(mm => mm.dispose()) })
     G.halves.forEach(h => { scene.remove(h.m); h.m.children.forEach(c => { if (c.material) c.material.dispose() }) })
     G.bursts.forEach(b => { scene.remove(b.pts); scene.remove(b.flash); b.pts.geometry.dispose(); b.pts.material.dispose() })
     G.texts.forEach(t => { scene.remove(t.sp); if (t.tex) t.tex.dispose(); t.sp.material.dispose() })
@@ -336,7 +353,9 @@ export function useGame() {
     G.halves.forEach(h => scene.add(h.m))
     spawnBurst(note.g.position, saber.color, 10, 0.1, 4.5)
     spawnText(note.g.position, String(pts), pts >= 108 ? '#ffd76e' : (pts >= 95 ? '#ffffff' : '#9fb0ff'))
-    synth.sfxHit(saber.hand === 'L' ? -0.4 : 0.4, 0.85, 0.97 + Math.random() * 0.06)
+    const hitPan = saber.hand === 'L' ? -0.4 : 0.4
+    if (note.d.t >= G.lastNoteT - 0.001) synth.sfxLastHit(hitPan)
+    else synth.sfxHit(hitPan, 0.85, 0.97 + Math.random() * 0.06)
     G.shake = Math.min(0.5, G.shake + 0.12)
     removeNote(note)
     updateHUD()
@@ -542,6 +561,7 @@ export function useGame() {
     G.leanTarget = 0
     G.shake = 0
     G.totalNotes = G.song.notes.filter(n => n.type !== 3 && !n.link).length
+    G.lastNoteT = G.song.notes.reduce((m, n) => (n.type !== 3 && !n.link && n.t > m ? n.t : m), -1)
     _vrPlayingDebugged = false
     _vrPollLogged = false
     _vrPollNoUpdate = false
@@ -850,7 +870,7 @@ export function useGame() {
       // Spawn
       const ahead = SPAWN_DIST / meta.value.speed
       const ns = G.song.notes
-      const mats = { matL, matR, bombMat, textures }
+      const mats = { matL, matR, bombMat, textures, colored: coloredMat }
       while (G.noteIdx < ns.length && ns[G.noteIdx].t - t < ahead) spawnNote(ns[G.noteIdx++], mats)
       // Log first few notes
       if (G.noteIdx > 0 && !_noteSpawnLogged) {
@@ -906,6 +926,7 @@ export function useGame() {
         if (frontZ - o.len > 3) {
           scene.remove(o.m)
           o.m.traverse(c => { if (c.geometry) c.geometry.dispose() })
+          ;(o.m.userData.ownMats || []).forEach(mm => mm.dispose())
           G.walls.splice(i, 1)
         }
       }
