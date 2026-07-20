@@ -745,7 +745,7 @@ export function useGame() {
       composer.addPass(new RenderPass(scene, camera))
       const bloom = new UnrealBloomPass(
         new THREE.Vector2(window.innerWidth * scale, window.innerHeight * scale),
-        quality.value === 'medium' ? 0.8 : 0.95, 0.55, 0.32,
+        quality.value === 'medium' ? 0.55 : 0.65, 0.42, 0.5,
       )
       composer.addPass(bloom)
     } catch (e) { composer = null }
