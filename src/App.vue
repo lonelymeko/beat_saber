@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted, provide } from 'vue'
 import { useGame } from './composables/useGame'
+import { browseBeatSaver } from './audio/beatsaver'
 
 const game = useGame()
 provide('game', game)
@@ -91,8 +92,81 @@ const popularSongs = [
 
 async function doQuickSearch(q) {
   bsResults.value = []
+  bsBrowseActive.value = false
   bsShowSearch.value = true
   await doSearch(q)
+}
+
+// ===== Keyword-less browsing: genre tag + sort (Rating/Latest), paginated =====
+const BS_TAGS: [string, string][] = [
+  ['', '全部'], ['anime', '动漫'], ['j-pop', 'J-POP'], ['vocaloid', 'V家'],
+  ['pop', '流行'], ['electronic', '电子'], ['dance-style', '舞曲'], ['rock', '摇滚'],
+  ['metal', '金属'], ['hip-hop-rap', '说唱'], ['classical-orchestral', '古典'],
+]
+const bsSort = ref<'Rating' | 'Latest'>('Rating')
+const bsTag = ref('')
+const bsPage = ref(0)
+const bsBrowseActive = ref(false)
+
+async function browseCats(reset = true) {
+  if (bsLoading.value) return
+  bsLoading.value = true
+  bsError.value = ''
+  if (reset) { bsPage.value = 0; bsResults.value = [] }
+  bsBrowseActive.value = true
+  const tagLabel = BS_TAGS.find(t => t[0] === bsTag.value)?.[1] || '全部'
+  bsSearchLabel.value = `${bsSort.value === 'Rating' ? '热门' : '最新'} · ${tagLabel}`
+  try {
+    const list = await browseBeatSaver(bsSort.value, bsPage.value, bsTag.value)
+    bsResults.value = reset ? list : bsResults.value.concat(list)
+    if (!bsResults.value.length) bsError.value = 'No results'
+  } catch (e: any) { bsError.value = 'Browse failed: ' + e.message }
+  bsLoading.value = false
+}
+
+function browseMore() { bsPage.value++; browseCats(false) }
+function setSort(s: 'Rating' | 'Latest') { bsSort.value = s; browseCats(true) }
+function setTag(t: string) { bsTag.value = t; browseCats(true) }
+
+// ===== One-click Top10 batch download; each batch advances to the next 10 =====
+const topBusy = ref(false)
+const topNote = ref('')
+const topOffset = ref(parseInt(localStorage.getItem('bs_top_offset') || '0', 10) || 0)
+
+async function fetchTopSlice(offset: number) {
+  const page = Math.floor(offset / 20)
+  const list = await browseBeatSaver('Rating', page)
+  let slice = list.slice(offset % 20, (offset % 20) + 10)
+  if (slice.length < 10) {
+    const next = await browseBeatSaver('Rating', page + 1)
+    slice = slice.concat(next.slice(0, 10 - slice.length))
+  }
+  return slice
+}
+
+async function downloadTop10() {
+  if (topBusy.value) return
+  topBusy.value = true
+  bsError.value = ''
+  try {
+    const batch = await fetchTopSlice(topOffset.value)
+    for (let i = 0; i < batch.length; i++) {
+      const r = batch[i]
+      topNote.value = `批量下载 ${i + 1}/${batch.length} · ${r.songName || r.name}`
+      try { await game.downloadSong(r) } catch (e) { /* skip failed map */ }
+    }
+    topNote.value = ''
+    topOffset.value += 10
+    localStorage.setItem('bs_top_offset', String(topOffset.value))
+    // Show the NEXT batch so 再点一次继续下 10 首
+    bsBrowseActive.value = false
+    bsSearchLabel.value = `热门 · 已下载前 ${topOffset.value} 首,下一批 ↓`
+    bsResults.value = await fetchTopSlice(topOffset.value)
+  } catch (e: any) {
+    bsError.value = '批量下载失败: ' + e.message
+    topNote.value = ''
+  }
+  topBusy.value = false
 }
 
 async function onFileDrop(e) {
@@ -340,6 +414,23 @@ onUnmounted(() => {
           {{ bsLoading ? '...' : 'SEARCH' }}
         </button>
       </div>
+      <div class="bs-browse-row">
+        <button class="bs-pill sort" :class="{ on: bsSort === 'Rating' }" @mouseenter="game.uiHover()" @click="game.uiClick(); setSort('Rating')">热门</button>
+        <button class="bs-pill sort" :class="{ on: bsSort === 'Latest' }" @mouseenter="game.uiHover()" @click="game.uiClick(); setSort('Latest')">最新</button>
+        <span class="bs-sep"></span>
+        <button
+          v-for="t in BS_TAGS" :key="'t-' + t[0]"
+          class="bs-pill"
+          :class="{ on: bsBrowseActive && bsTag === t[0] }"
+          @mouseenter="game.uiHover()"
+          @click="game.uiClick(); setTag(t[0])"
+        >{{ t[1] }}</button>
+        <span class="bs-sep"></span>
+        <button class="bs-pill top10" :disabled="topBusy" @mouseenter="game.uiHover()" @click="game.uiClick(); downloadTop10()">
+          {{ topBusy ? '批量下载中…' : `一键下载 TOP10${topOffset ? ' (已下 ' + topOffset + ')' : ''}` }}
+        </button>
+      </div>
+      <div v-if="topNote" class="bs-progress-label bs-top-note">{{ topNote }}</div>
       <div v-if="game.downloadProgress.value.pct > 0 && game.downloadProgress.value.stage !== 'done'" class="bs-progress">
         <div class="bs-progress-label">{{ game.downloadProgress.value.stage === 'resolving' ? 'Resolving...' : game.downloadProgress.value.stage === 'parsing' ? 'Parsing beatmap...' : 'Downloading... ' + game.downloadProgress.value.pct + '%' }}</div>
         <div class="bs-progress-bar"><div class="bs-progress-fill" :style="{ width: game.downloadProgress.value.pct + '%' }"></div></div>
@@ -366,6 +457,13 @@ onUnmounted(() => {
             </div>
             <div class="bsr-dl">{{ bsDownloading === r.id ? '下载中…' : '下载 DOWNLOAD' }}</div>
           </div>
+          <button
+            v-if="bsBrowseActive"
+            class="bs-more"
+            :disabled="bsLoading"
+            @mouseenter="game.uiHover()"
+            @click="game.uiClick(); browseMore()"
+          >{{ bsLoading ? '加载中…' : '加载更多 · MORE' }}</button>
         </div>
         <template v-else>
           <div class="bs-popular-section">

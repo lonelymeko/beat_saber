@@ -454,68 +454,6 @@ export class Synth {
     o.start(t); o.stop(t + 0.06)
   }
 
-  // ===== Menu background music =====
-  // Plays /sfx/menu.ogg looped when present (drop in the official MenuMusic there);
-  // otherwise falls back to a synthesized ambient pad in a similar mood.
-  menuBuf: AudioBuffer | null = null
-  _menuNodes: { g: GainNode, stops: (() => void)[] } | null = null
-  _menuFetched = false
-
-  async _loadMenuBuf() {
-    if (this._menuFetched) return
-    this._menuFetched = true
-    try {
-      const r = await fetch('/sfx/menu.ogg')
-      if (r.ok) this.menuBuf = await this.ctx.decodeAudioData(await r.arrayBuffer())
-    } catch (e) { /* fallback pad */ }
-  }
-
-  async startMenuMusic() {
-    if (this._menuNodes) return
-    this._menuNodes = { g: null as any, stops: [] } // reserve slot against double-start race
-    await this._loadMenuBuf()
-    const g = this.ctx.createGain()
-    const t = this.ctx.currentTime
-    g.gain.setValueAtTime(0, t)
-    g.gain.linearRampToValueAtTime(0.32, t + 1.6)
-    g.connect(this.music)
-    const stops: (() => void)[] = []
-    if (this.menuBuf) {
-      const s = this.ctx.createBufferSource()
-      s.buffer = this.menuBuf
-      s.loop = true
-      s.connect(g)
-      s.start()
-      stops.push(() => s.stop())
-    } else {
-      const lp = this.ctx.createBiquadFilter()
-      lp.type = 'lowpass'; lp.frequency.value = 720; lp.Q.value = 0.6
-      lp.connect(g)
-      const lfo = this.ctx.createOscillator()
-      const lfoG = this.ctx.createGain()
-      lfo.frequency.value = 0.055
-      lfoG.gain.value = 430
-      lfo.connect(lfoG); lfoG.connect(lp.frequency)
-      lfo.start(); stops.push(() => lfo.stop())
-      ;[110, 164.81, 220, 261.63, 329.63].forEach((f, i) => {
-        const o = this.ctx.createOscillator()
-        o.type = i < 2 ? 'sawtooth' : 'triangle'
-        o.frequency.value = f
-        o.detune.value = (Math.random() - 0.5) * 9
-        const og = this.ctx.createGain()
-        og.gain.value = i < 2 ? 0.05 : 0.033
-        o.connect(og); og.connect(lp)
-        o.start(); stops.push(() => o.stop())
-      })
-    }
-    if (!this._menuNodes) { // stopped while loading
-      stops.forEach(f => { try { f() } catch (e) {} })
-      g.disconnect()
-      return
-    }
-    this._menuNodes = { g, stops }
-  }
-
   // ===== Song preview (official-style: selecting a song plays a looped excerpt) =====
   _previewNodes: { g: GainNode, s: AudioBufferSourceNode } | null = null
   _previewToken = 0
@@ -523,7 +461,6 @@ export class Synth {
   /** Decode (if needed) and loop an excerpt of the song. Returns the decoded buffer for caching. */
   async startPreview(raw: Uint8Array | ArrayBuffer | AudioBuffer): Promise<AudioBuffer | null> {
     const tok = ++this._previewToken
-    this.stopMenuMusic()
     this._stopPreviewNodes()
     let buf: AudioBuffer
     if (raw instanceof AudioBuffer) {
@@ -571,20 +508,6 @@ export class Synth {
     this._stopPreviewNodes()
   }
 
-  stopMenuMusic() {
-    const nodes = this._menuNodes
-    this._menuNodes = null
-    if (!nodes || !nodes.g) return
-    const { g, stops } = nodes
-    const t = this.ctx.currentTime
-    g.gain.cancelScheduledValues(t)
-    g.gain.setValueAtTime(g.gain.value, t)
-    g.gain.linearRampToValueAtTime(0, t + 0.35)
-    setTimeout(() => {
-      stops.forEach(f => { try { f() } catch (e) {} })
-      try { g.disconnect() } catch (e) {}
-    }, 450)
-  }
 
   sfxClick() {
     const t = this.now()

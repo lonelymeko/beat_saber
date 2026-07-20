@@ -145,11 +145,10 @@ export function useGame() {
     })
 
     checkXRSupport()
-    // First user gesture unlocks audio → start menu music
+    // First user gesture unlocks audio (song previews need a running context)
     const unlockAudio = () => {
       window.removeEventListener('pointerdown', unlockAudio)
       ensureAudio()
-      if (state.value === 'menu') synth.startMenuMusic()
     }
     window.addEventListener('pointerdown', unlockAudio)
     // Load bundled + saved maps in parallel, adding songs to the list as each arrives
@@ -546,7 +545,6 @@ export function useGame() {
       console.error('[startSong] AudioContext not available:', synth?.ctx?.state)
       return
     }
-    synth.stopMenuMusic()
     synth.stopPreview()
     stopEventPreview()
     G.playToken = (G.playToken || 0) + 1
@@ -689,7 +687,6 @@ export function useGame() {
     } else {
       state.value = 'menu'
     }
-    if (synth) synth.startMenuMusic()
   }
 
   function failSong() {
@@ -824,7 +821,6 @@ export function useGame() {
     }
     // Built-in synth songs: play their generated event track from ~25% in
     synth.stopPreview()
-    synth.stopMenuMusic()
     try {
       const data = song?.build?.()
       if (data?.events?.length) {
@@ -852,7 +848,6 @@ export function useGame() {
   function uiClick() {
     ensureAudio()
     synth.sfxClick()
-    if (state.value === 'menu') synth.startMenuMusic()
   }
 
   function uiHover() {
@@ -1488,6 +1483,7 @@ export function useGame() {
     const cats: [string, string, () => void][] = [
       ['热门 TOP', 'Rating 最高', () => vrBrowserFetch(() => browseBeatSaver('Rating'))],
       ['最新 LATEST', '新上架谱面', () => vrBrowserFetch(() => browseBeatSaver('Latest'))],
+      ['键盘搜索', '自由输入', () => vrKeyboardShow()],
       ['YOASOBI', '快捷搜索', () => vrBrowserFetch(() => searchBeatSaver('YOASOBI'))],
       ['Camellia', '快捷搜索', () => vrBrowserFetch(() => searchBeatSaver('Camellia'))],
       ['千本桜', '快捷搜索', () => vrBrowserFetch(() => searchBeatSaver('千本桜'))],
@@ -1496,6 +1492,102 @@ export function useGame() {
       ['← 返回歌单', 'BACK', () => fillVRMenuSongs()],
     ]
     _placeVRCards(cats.map(([main, sub, act]) => _makeVRCard(main, sub, '', '#7fdcff', act)))
+  }
+
+  // ===== VR keyboard (free-text BeatSaver search, laser-typed) =====
+  let _vrKbText = ''
+  let _vrKbDisplay: any = null
+
+  function _makeKeyCard(label: string, w: number, h: number, accent: string, act: () => void) {
+    const cc = document.createElement('canvas')
+    cc.width = Math.round(256 * (w / h)); cc.height = 256
+    const cg = cc.getContext('2d')
+    cg.fillStyle = 'rgba(6,8,18,0.95)'
+    cg.fillRect(0, 0, cc.width, cc.height)
+    cg.strokeStyle = accent
+    cg.lineWidth = 6
+    cg.globalAlpha = 0.5
+    cg.strokeRect(3, 3, cc.width - 6, cc.height - 6)
+    cg.globalAlpha = 1
+    cg.textAlign = 'center'
+    cg.textBaseline = 'middle'
+    cg.fillStyle = '#ffffff'
+    cg.font = `bold ${label.length > 2 ? 72 : 130}px "Rajdhani", "PingFang SC", sans-serif`
+    cg.fillText(label, cc.width / 2, cc.height / 2)
+    const tex = new THREE.CanvasTexture(cc)
+    const card = new THREE.Mesh(
+      new THREE.PlaneGeometry(w, h),
+      new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, side: THREE.DoubleSide }),
+    )
+    card.userData = { act, hw: w / 2, hh: h / 2 }
+    return card
+  }
+
+  function _updateKbDisplay() {
+    if (!_vrKbDisplay) return
+    const { kbCtx, kbTex, kbCanvas } = _vrKbDisplay.userData
+    kbCtx.clearRect(0, 0, kbCanvas.width, kbCanvas.height)
+    kbCtx.fillStyle = 'rgba(6,8,18,0.95)'
+    kbCtx.fillRect(0, 0, kbCanvas.width, kbCanvas.height)
+    kbCtx.strokeStyle = '#7fdcff'
+    kbCtx.lineWidth = 4
+    kbCtx.globalAlpha = 0.6
+    kbCtx.strokeRect(2, 2, kbCanvas.width - 4, kbCanvas.height - 4)
+    kbCtx.globalAlpha = 1
+    kbCtx.textAlign = 'center'
+    kbCtx.textBaseline = 'middle'
+    kbCtx.fillStyle = _vrKbText ? '#ffffff' : '#5a6484'
+    kbCtx.font = 'bold 64px "Rajdhani", "PingFang SC", sans-serif'
+    kbCtx.fillText(_vrKbText || '输入歌名 · TYPE TO SEARCH', kbCanvas.width / 2, kbCanvas.height / 2)
+    kbTex.needsUpdate = true
+  }
+
+  function vrKeyboardShow() {
+    clearVRMenuCards()
+    _vrKbText = ''
+    // Input display
+    const kbCanvas = document.createElement('canvas')
+    kbCanvas.width = 1024; kbCanvas.height = 128
+    const kbCtx = kbCanvas.getContext('2d')
+    const kbTex = new THREE.CanvasTexture(kbCanvas)
+    const display = new THREE.Mesh(
+      new THREE.PlaneGeometry(3.4, 0.42),
+      new THREE.MeshBasicMaterial({ map: kbTex, transparent: true, depthWrite: false, side: THREE.DoubleSide }),
+    )
+    display.position.set(0, 0.82, 0)
+    display.userData = { act: () => {}, hw: 1.7, hh: 0.21, kbCanvas, kbCtx, kbTex }
+    vrMenuOrigin.add(display)
+    vrMenuItems.push(display)
+    _vrKbDisplay = display
+    _updateKbDisplay()
+
+    const rows = ['1234567890', 'qwertyuiop', 'asdfghjkl', 'zxcvbnm']
+    rows.forEach((row, ri) => {
+      const y = 0.42 - ri * 0.36
+      row.split('').forEach((ch, ci) => {
+        const x = (ci - (row.length - 1) / 2) * 0.34
+        const card = _makeKeyCard(ch.toUpperCase(), 0.3, 0.3, '#39445e', () => { _vrKbText += ch; _updateKbDisplay() })
+        card.position.set(x, y, 0)
+        vrMenuOrigin.add(card)
+        vrMenuItems.push(card)
+      })
+    })
+    const y2 = 0.42 - 4 * 0.36
+    const specials: [string, number, number, string, () => void][] = [
+      ['← 返回', 0.72, -1.5, '#ff6ec7', () => vrBrowserCats()],
+      ['空格 SPACE', 1.1, -0.45, '#39445e', () => { _vrKbText += ' '; _updateKbDisplay() }],
+      ['删除 DEL', 0.72, 0.55, '#ff6e6e', () => { _vrKbText = _vrKbText.slice(0, -1); _updateKbDisplay() }],
+      ['搜索 GO', 0.85, 1.45, '#ffd76e', () => {
+        const q = _vrKbText.trim()
+        if (q) vrBrowserFetch(() => searchBeatSaver(q))
+      }],
+    ]
+    for (const [label, w, x, accent, act] of specials) {
+      const card = _makeKeyCard(label, w, 0.3, accent, act)
+      card.position.set(x, y2, 0)
+      vrMenuOrigin.add(card)
+      vrMenuItems.push(card)
+    }
   }
 
   function _vrBrowserMessage(text: string, backTo?: () => void) {
@@ -1638,7 +1730,8 @@ export function useGame() {
         if (t > 0 && t < 10) {
           const pt = start.clone().addScaledVector(dir, t)
           const local = card.parent.worldToLocal(pt.clone())
-          if (Math.abs(local.x - card.position.x) < 0.6 && Math.abs(local.y - card.position.y) < 0.3) {
+          const hw = card.userData.hw ?? 0.6, hh = card.userData.hh ?? 0.3
+          if (Math.abs(local.x - card.position.x) < hw && Math.abs(local.y - card.position.y) < hh) {
             if (t < closestDist) { closestDist = t; closestHit = i }
           }
         }
@@ -1956,7 +2049,7 @@ export function useGame() {
         env = createEnv(firstSong.env, scene, firstSong.colorL, firstSong.colorR)
         state.value = 'vrmenu'
       }
-      if (ensureAudio() && state.value === 'vrmenu') synth.startMenuMusic()
+      ensureAudio()
 
       session.addEventListener('end', onXRSessionEnd)
     } catch (e) {

@@ -16,9 +16,10 @@ export async function searchBeatSaver(query: string, page = 0): Promise<BeatSave
   return fetchMapList(`${API}/search/text/${page}?q=${q}&sortOrder=Latest`)
 }
 
-/** Browse without a query (used by the VR menu): top rated or latest maps. */
-export async function browseBeatSaver(sort: 'Rating' | 'Latest' = 'Rating', page = 0): Promise<BeatSaverMapInfo[]> {
-  return fetchMapList(`${API}/search/text/${page}?sortOrder=${sort}`)
+/** Browse without a query: top rated or latest, optionally filtered by a genre tag. */
+export async function browseBeatSaver(sort: 'Rating' | 'Latest' = 'Rating', page = 0, tag = ''): Promise<BeatSaverMapInfo[]> {
+  const t = tag ? `&tags=${encodeURIComponent(tag)}` : ''
+  return fetchMapList(`${API}/search/text/${page}?sortOrder=${sort}${t}`)
 }
 
 async function fetchMapList(url: string): Promise<BeatSaverMapInfo[]> {
