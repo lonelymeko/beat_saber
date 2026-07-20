@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { LANE_X, ROW_Y, SPAWN_DIST, DIR_ROT } from './constants'
+import { LANE_X, ROW_Y, SPAWN_DIST, DIR_ROT, DIR_VEC } from './constants'
 
 let noteGeo, arrowGeo, faceGlowGeo, bombGeo, halfGeo, hotGeo, wallMat
 
@@ -15,6 +15,19 @@ export function setGeometries(geo) {
 
 export function createNoteMesh(d, mats, textures) {
   const g = new THREE.Group()
+  if (d.link) {
+    // Chain link: thin slice with a glowing center dot
+    const body = new THREE.Mesh(halfGeo, d.type === 0 ? mats.matL : mats.matR)
+    body.scale.set(0.9, 0.62, 0.9)
+    g.add(body)
+    const dot = new THREE.Mesh(faceGlowGeo, textures.dotGlowMat)
+    dot.scale.set(0.5, 0.5, 1)
+    dot.position.z = 0.09
+    g.add(dot)
+    g.position.set(d.wx ?? LANE_X[d.x], d.wy ?? ROW_Y[d.y], -SPAWN_DIST)
+    g.userData.spin = 0
+    return g
+  }
   if (d.type === 3) {
     g.add(new THREE.Mesh(bombGeo, mats.bombMat))
     const glow = new THREE.Sprite(new THREE.SpriteMaterial({
@@ -35,9 +48,29 @@ export function createNoteMesh(d, mats, textures) {
     halo.rotation.z = rot
     g.add(halo)
   }
-  g.position.set(LANE_X[d.x], ROW_Y[d.y], -SPAWN_DIST)
+  g.position.set(d.wx ?? LANE_X[d.x], d.wy ?? ROW_Y[d.y], -SPAWN_DIST)
   g.userData.spin = (Math.random() - 0.5) * 1.4
   return g
+}
+
+/** Arc (slider) guide: additive tube from head note to tail note, moving with the conveyor. */
+export function createArcMesh(a, speed, color) {
+  const dz = Math.max(0.05, (a.tb - a.t) * speed)
+  const A = 0.9
+  const hd = DIR_VEC[a.d1 === 8 ? 8 : a.d1] || [0, 0]
+  const td = DIR_VEC[a.d2 === 8 ? 8 : a.d2] || [0, 0]
+  const curve = new THREE.CubicBezierCurve3(
+    new THREE.Vector3(a.x1, a.y1, 0),
+    new THREE.Vector3(a.x1 + hd[0] * A * a.mu, a.y1 + hd[1] * A * a.mu, -dz * 0.33),
+    new THREE.Vector3(a.x2 - td[0] * A * a.tmu, a.y2 - td[1] * A * a.tmu, -dz * 0.66),
+    new THREE.Vector3(a.x2, a.y2, -dz),
+  )
+  const geo = new THREE.TubeGeometry(curve, 24, 0.08, 6, false)
+  const mat = new THREE.MeshBasicMaterial({
+    color, transparent: true, opacity: 0.6,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  })
+  return new THREE.Mesh(geo, mat)
 }
 
 export function createWallMesh(w, speed, hitZ) {

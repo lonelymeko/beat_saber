@@ -7,6 +7,26 @@ export interface NoteData {
   y: number
   type: number
   dir: number
+  /** burst-slider chain link: small pad, fixed 20 pts, combo but no accuracy weight */
+  link?: boolean
+  /** fractional world coords (links sit between grid cells); fall back to LANE_X[x]/ROW_Y[y] */
+  wx?: number
+  wy?: number
+}
+
+/** Arc (v3 slider) — visual guide between two notes; world coords precomputed at parse. */
+export interface ArcData {
+  t: number
+  tb: number
+  c: number
+  x1: number
+  y1: number
+  d1: number
+  mu: number
+  x2: number
+  y2: number
+  d2: number
+  tmu: number
 }
 
 export interface WallData {
@@ -38,6 +58,7 @@ export interface SongData {
   notes: NoteData[]
   walls: WallData[]
   lights?: LightEvent[]
+  arcs?: ArcData[]
   duration: number
   bpm: number
   spb: number

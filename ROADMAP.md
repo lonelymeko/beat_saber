@@ -56,16 +56,11 @@
 - [x] 无灯光数据的谱面：内置节拍灯光秀兜底
 - 后续可做：`lightColorEventBoxGroups` 按灯 id 精确 keyframe 渐变（当前为近似展平）、`lightTranslationEventBoxGroups` 平移
 
-### 2. 滑条 & 连打
-BeatSaver v3 新增滑条和连打滑块。
-
-**数据字段**：
-- `sliders`: `{ b, c, x, y, d, mu, tb, tx, ty, tc, tmu }` — 弧形滑条
-- `burstSliders`: `{ b, c, x, y, d, tb, tx, ty, sc, s }` — 连打滑块
-
-**实现思路**：
-- 滑条：用 `TubeGeometry` 绘制弧线，按段判定手柄是否在轨迹上
-- 连打滑块：多个短方块连续排列，每 hit 一个计一次分
+### 2. 滑条 & 连打 ✅ 已完成
+- [x] `sliders`（arc 弧形滑条）：解析头/尾音符坐标+方向+mu/tmu，`CubicBezierCurve3` + `TubeGeometry` 发光光带，随传送带移动，尾部过判定面后回收——与官方一致为纯视觉引导（计分仍在头尾 colorNote）
+- [x] `burstSliders`（chain 连打）：头音符保留谱面原 colorNote；沿头方向二次贝塞尔插值出 `sc-1` 个链节薄片（squish `s` 压缩系数），存 `wx/wy` 世界坐标
+- [x] 链节判定：同色军刀触碰即得（无方向门槛、半速门槛），每节 20×倍率分、计连击但不进准度模型；异色=坏切断连击；漏掉断连击小扣血
+- [x] 桌面/VR 两套判定路径 + 自动演示瞄准均支持链节；IndexedDB 持久化 `arcs`
 
 ### 3. 自定义场景材质 ← 参照正版
 有些谱面自带场景模型和材质，需要 GLTF 加载。

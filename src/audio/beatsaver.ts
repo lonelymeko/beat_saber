@@ -1,5 +1,6 @@
 // BeatSaver API client + beatmap zip parser
-import type { LightEvent, Song, BeatSaverMapInfo } from '../types'
+import type { LightEvent, Song, BeatSaverMapInfo, NoteData, ArcData } from '../types'
+import { LANE_X, ROW_Y, DIR_VEC } from '../game/constants'
 
 const API = 'https://api.beatsaver.com'
 
@@ -210,7 +211,7 @@ async function parseZipManually(data: Uint8Array, mapData: any, coverBlob?: Blob
   }
   console.log('[ZIP-CHOSEN]', chosenName, 'notes:', chosenDiff?._notes?.length, 'keys:', Object.keys(difficulties))
 
-  const notes = [], walls = []
+  const notes = [], walls = [], arcs: ArcData[] = []
   if (chosenDiff) {
     // Support both BeatSaver v2 (_notes/_obstacles) and v3 (colorNotes/bombNotes/obstacles)
     if (chosenDiff.colorNotes || chosenDiff.bombNotes) {
@@ -223,6 +224,43 @@ async function parseZipManually(data: Uint8Array, mapData: any, coverBlob?: Blob
       if (chosenDiff.bombNotes) {
         for (const n of chosenDiff.bombNotes) {
           notes.push({ t: n.b, x: n.x, y: n.y, type: 3, dir: 8 })
+        }
+      }
+      // v3 arcs (sliders): visual guides between two notes
+      if (Array.isArray(chosenDiff.sliders)) {
+        for (const s of chosenDiff.sliders) {
+          const x1 = clampIdx(s.x, 3), y1 = clampIdx(s.y, 2)
+          const x2 = clampIdx(s.tx, 3), y2 = clampIdx(s.ty, 2)
+          arcs.push({
+            t: s.b, tb: s.tb, c: s.c,
+            x1: LANE_X[x1], y1: ROW_Y[y1], d1: s.d ?? 8, mu: s.mu ?? 1,
+            x2: LANE_X[x2], y2: ROW_Y[y2], d2: s.tc ?? 8, tmu: s.tmu ?? 1,
+          })
+        }
+      }
+      // v3 chains (burstSliders): head note stays a colorNote; add sc-1 link pads along the path
+      if (Array.isArray(chosenDiff.burstSliders)) {
+        for (const s of chosenDiff.burstSliders) {
+          const sc = Math.max(2, s.sc | 0)
+          const squish = s.s > 0 ? s.s : 1
+          const hx = LANE_X[clampIdx(s.x, 3)], hy = ROW_Y[clampIdx(s.y, 2)]
+          const tx = LANE_X[clampIdx(s.tx, 3)], ty = ROW_Y[clampIdx(s.ty, 2)]
+          const dv = DIR_VEC[s.d === 8 || s.d == null ? 8 : s.d]
+          const dist = Math.hypot(tx - hx, ty - hy)
+          // quadratic bezier: control point follows the head cut direction
+          const cx = hx + dv[0] * dist * 0.5
+          const cy = hy + dv[1] * dist * 0.5
+          for (let i = 1; i < sc; i++) {
+            const f = (i / (sc - 1)) * squish
+            const u = 1 - f
+            const wx = u * u * hx + 2 * u * f * cx + f * f * tx
+            const wy = u * u * hy + 2 * u * f * cy + f * f * ty
+            notes.push({
+              t: s.b + (s.tb - s.b) * f,
+              x: clampIdx(s.tx, 3), y: clampIdx(s.ty, 2),
+              type: s.c, dir: 8, link: true, wx, wy,
+            } as NoteData)
+          }
         }
       }
       if (chosenDiff.obstacles) {
@@ -272,9 +310,13 @@ async function parseZipManually(data: Uint8Array, mapData: any, coverBlob?: Blob
   // Convert beat-time to seconds for all notes and walls
   for (const n of notes) n.t = n.t * spb
   for (const w of walls) w.t = w.t * spb
+  for (const a of arcs) { a.t = a.t * spb; a.tb = a.tb * spb }
+  notes.sort((a, b) => a.t - b.t)
+  arcs.sort((a, b) => a.t - b.t)
 
   const lights = chosenDiff ? parseLightEvents(chosenDiff, spb) : []
   console.log('[ZIP-LIGHTS]', lights.length, 'events')
+  console.log('[ZIP-ARCS]', arcs.length, 'arcs,', notes.filter((n: NoteData) => n.link).length, 'chain links')
 
   const duration = mapData.duration || (notes.length > 0 ? notes[notes.length - 1].t + 3 : 180)
   const songName = info._songName || mapData.songName || '未知歌曲'
@@ -300,13 +342,17 @@ async function parseZipManually(data: Uint8Array, mapData: any, coverBlob?: Blob
     audioUrl: url,
     internal: {
       events: [],
-      notes, walls, lights,
+      notes, walls, lights, arcs,
       duration: duration || 180,
       bpm: Math.round(bpm), spb,
       buffer: audioBuffer,
     },
     build() { return (this as any).internal },
   }
+}
+
+function clampIdx(v: number, max: number): number {
+  return Math.max(0, Math.min(max, v | 0))
 }
 
 // ===== Lighting events =====

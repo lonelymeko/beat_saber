@@ -12,7 +12,7 @@ import { analyzeAudioBuffer } from '../audio/analyzer'
 import { initTextures, makeEnvMap } from '../game/Textures'
 import { Saber } from '../game/Saber'
 import { VRHUD } from '../game/vrHUD'
-import { createNoteMesh, createWallMesh, createHalves, createBurst, createFloatingText, setGeometries } from '../game/Note'
+import { createNoteMesh, createWallMesh, createHalves, createBurst, createFloatingText, createArcMesh, setGeometries } from '../game/Note'
 import { createEnv } from '../env/index'
 import { log, dumpLog, startLog } from './vrlog'
 import {
@@ -64,8 +64,8 @@ export function useGame() {
   // ========== Game State ==========
   let G: any = {
     startAt: 0, t: -10, lastBeat: -1, lastCount: 99,
-    noteIdx: 0, wallIdx: 0, lightIdx: 0,
-    notes: [], walls: [], halves: [], bursts: [], texts: [],
+    noteIdx: 0, wallIdx: 0, lightIdx: 0, arcIdx: 0,
+    notes: [], walls: [], halves: [], bursts: [], texts: [], arcs: [],
     com: 0, jud: 0, hits: 0,
     level: 0, prog: 0, en: 0.5,
     cumMax: [], totalNotes: 0,
@@ -220,6 +220,14 @@ export function useGame() {
     G.walls.push({ w, m, len })
   }
 
+  function spawnArc(a) {
+    const color = a.c === 0 ? meta.value.colorL : meta.value.colorR
+    const m = createArcMesh(a, meta.value.speed, color)
+    m.position.z = G.hitZ - SPAWN_DIST
+    scene.add(m)
+    G.arcs.push({ a, m })
+  }
+
   function spawnBurst(pos, color, n = 14, size = 0.12, spd = 5) {
     const b = createBurst(pos, color, textures, n, size, spd)
     scene.add(b.pts)
@@ -236,11 +244,12 @@ export function useGame() {
   // ========== Clear ==========
   function clearPlayfield() {
     G.notes.forEach(n => scene.remove(n.g))
+    G.arcs.forEach(o => { scene.remove(o.m); o.m.geometry.dispose(); o.m.material.dispose() })
     G.walls.forEach(w => { scene.remove(w.m); w.m.geometry.dispose() })
     G.halves.forEach(h => { scene.remove(h.m); h.m.children.forEach(c => { if (c.material) c.material.dispose() }) })
     G.bursts.forEach(b => { scene.remove(b.pts); scene.remove(b.flash); b.pts.geometry.dispose(); b.pts.material.dispose() })
     G.texts.forEach(t => { scene.remove(t.sp); if (t.tex) t.tex.dispose(); t.sp.material.dispose() })
-    G.notes = []; G.walls = []; G.halves = []; G.bursts = []; G.texts = []
+    G.notes = []; G.walls = []; G.halves = []; G.bursts = []; G.texts = []; G.arcs = []
   }
 
   // ========== Scoring ==========
@@ -357,6 +366,34 @@ export function useGame() {
     updateHUD()
   }
 
+  function goodLink(note, saber) {
+    G.score += 20 * MULT[G.level]
+    addCombo()
+    addEnergy(0.004)
+    spawnBurst(note.g.position, saber.color, 8, 0.09, 3.5)
+    synth.sfxSlash(saber.hand === 'L' ? -0.4 : 0.4)
+    removeNote(note)
+    updateHUD()
+  }
+
+  function badLink(note) {
+    breakCombo()
+    addEnergy(-0.05)
+    spawnText(note.g.position, '×', '#ff5566')
+    synth.sfxBad()
+    removeNote(note)
+    updateHUD()
+  }
+
+  function missLink(note) {
+    note.missed = true
+    breakCombo()
+    addEnergy(-0.05)
+    spawnText(note.g.position, 'MISS', '#ff5566')
+    synth.sfxMiss()
+    updateHUD()
+  }
+
   function bombHit(note) {
     breakCombo()
     addEnergy(-0.15)
@@ -393,6 +430,13 @@ export function useGame() {
           if (!auto.value && d < 0.42) bombHit(note)
           continue
         }
+        if (note.d.link) {
+          // Chain link: touch with the matching-color saber, no direction gate
+          if (d > radius || saber.speed < minSpeed * 0.5) continue
+          if ((saber.hand === 'L') === (note.d.type === 0)) goodLink(note, saber)
+          else badLink(note)
+          continue
+        }
         if (d > radius || saber.speed < minSpeed) continue
         const typeOK = (saber.hand === 'L') === (note.d.type === 0)
         let dirOK = true
@@ -422,7 +466,7 @@ export function useGame() {
       return { x: ix + Math.sin(t * 1.3 + ph) * 0.14, y: 1.15 + Math.sin(t * 1.8 + ph) * 0.09 }
     }
     const d = target.d
-    const nx = LANE_X[d.x], ny = ROW_Y[d.y]
+    const nx = d.wx ?? LANE_X[d.x], ny = d.wy ?? ROW_Y[d.y]
     const dv = DIR_VEC[d.dir === 8 ? 1 : d.dir]
     if (d.t - t > 0.05) {
       return { x: nx - dv[0] * 0.55, y: ny - dv[1] * 0.55 }
@@ -491,12 +535,13 @@ export function useGame() {
     G.noteIdx = 0
     G.wallIdx = 0
     G.lightIdx = 0
+    G.arcIdx = 0
     G.lastBeat = -1
     G.lastCount = 99
     G.lean = 0
     G.leanTarget = 0
     G.shake = 0
-    G.totalNotes = G.song.notes.filter(n => n.type !== 3).length
+    G.totalNotes = G.song.notes.filter(n => n.type !== 3 && !n.link).length
     _vrPlayingDebugged = false
     _vrPollLogged = false
     _vrPollNoUpdate = false
@@ -814,6 +859,8 @@ export function useGame() {
       }
       const ws = G.song.walls
       while (G.wallIdx < ws.length && ws[G.wallIdx].t - t < ahead) spawnWall(ws[G.wallIdx++], meta.value.speed)
+      const as = G.song.arcs
+      if (as) while (G.arcIdx < as.length && as[G.arcIdx].t - t < ahead) spawnArc(as[G.arcIdx++])
 
       // Move notes
       for (let i = G.notes.length - 1; i >= 0; i--) {
@@ -832,10 +879,22 @@ export function useGame() {
         }
         if (n.d.type === 3) n.g.rotation.y += dt * 2
         const missZ = XR.active ? 0.35 : MISS_Z
-        if (!n.cut && !n.missed && n.d.type !== 3 && z > missZ) missNote(n)
+        if (!n.cut && !n.missed && n.d.type !== 3 && z > missZ) { n.d.link ? missLink(n) : missNote(n) }
         if (!n.cut && n.d.type === 3 && z > 1.5) { n.cut = true; scene.remove(n.g) }
         if ((n.cut || n.missed) && z > 2.5) { scene.remove(n.g); G.notes.splice(i, 1) }
         else if (n.cut && n.d.type !== 3 && !n.missed) { G.notes.splice(i, 1) }
+      }
+
+      // Arcs travel with the conveyor; drop them once the tail passes the player
+      for (let i = G.arcs.length - 1; i >= 0; i--) {
+        const o = G.arcs[i]
+        o.m.position.z = G.hitZ + (t - o.a.t) * meta.value.speed
+        if (G.hitZ + (t - o.a.tb) * meta.value.speed > 2.5) {
+          scene.remove(o.m)
+          o.m.geometry.dispose()
+          o.m.material.dispose()
+          G.arcs.splice(i, 1)
+        }
       }
 
       // Walls

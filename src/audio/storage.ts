@@ -42,6 +42,7 @@ export async function saveMap(mapId: string, data: any): Promise<void> {
       notes: data.internal?.notes || [],
       walls: data.internal?.walls || [],
       lights: data.internal?.lights || [],
+      arcs: data.internal?.arcs || [],
       duration: data.internal?.duration || 180,
       // Store audio as ArrayBuffer (not Uint8Array - IndexedDB handles ArrayBuffer natively)
       audioBuffer: data.internal?.buffer ? data.internal.buffer.buffer.slice(data.internal.buffer.byteOffset, data.internal.buffer.byteOffset + data.internal.buffer.byteLength) : null,
@@ -87,6 +88,7 @@ export async function loadAllMaps(): Promise<Song[]> {
             notes: r.notes || [],
             walls: r.walls || [],
             lights: r.lights || [],
+            arcs: r.arcs || [],
             duration: r.duration || 180,
             bpm: r.bpm,
             spb: 60 / r.bpm,
