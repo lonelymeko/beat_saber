@@ -688,17 +688,20 @@ class LightGroup {
   intensity: number
   base: number
   colorIdx: 'L' | 'R' | 'W'
+  custom: THREE.Color | null
   mats: { mat: THREE.MeshBasicMaterial | THREE.SpriteMaterial, gain: number }[]
   constructor() {
     this.intensity = 0
     this.base = 0
     this.colorIdx = 'R'
+    this.custom = null
     this.mats = []
   }
   add(mat: THREE.MeshBasicMaterial | THREE.SpriteMaterial, gain = 1) { this.mats.push({ mat, gain }) }
-  onEvent(value: number, f = 1) {
+  onEvent(value: number, f = 1, customColor?: number) {
     const v = value | 0
     if (v === 0) { this.base = 0; return }
+    this.custom = customColor != null ? new THREE.Color(customColor) : null
     this.colorIdx = v <= 4 ? 'R' : v <= 8 ? 'L' : 'W'
     const kind = (v - 1) % 4 // 0=on 1=flash 2=fade 3=transition
     if (kind === 0 || kind === 3) { this.intensity = f; this.base = f }
@@ -709,7 +712,7 @@ class LightGroup {
     const rate = this.base > this.intensity ? 16 : (this.base === 0 ? 4.5 : 7)
     this.intensity += (this.base - this.intensity) * (1 - Math.exp(-dt * rate))
     if (this.base === 0 && this.intensity < 0.003) this.intensity = 0
-    _lgColor.copy(palette[this.colorIdx]).multiplyScalar(this.intensity)
+    _lgColor.copy(this.custom || palette[this.colorIdx]).multiplyScalar(this.intensity)
     for (const { mat, gain } of this.mats) mat.color.copy(_lgColor).multiplyScalar(gain)
   }
 }
@@ -877,11 +880,11 @@ class OfficialEnv extends BaseEnv {
 
   onLightEvent(ev: LightEvent) {
     switch (ev.type) {
-      case 0: this.groups.back.onEvent(ev.value, ev.f); break
-      case 1: this.groups.ring.onEvent(ev.value, ev.f); break
-      case 2: this.groups.left.onEvent(ev.value, ev.f); break
-      case 3: this.groups.right.onEvent(ev.value, ev.f); break
-      case 4: this.groups.center.onEvent(ev.value, ev.f); break
+      case 0: this.groups.back.onEvent(ev.value, ev.f, ev.c); break
+      case 1: this.groups.ring.onEvent(ev.value, ev.f, ev.c); break
+      case 2: this.groups.left.onEvent(ev.value, ev.f, ev.c); break
+      case 3: this.groups.right.onEvent(ev.value, ev.f, ev.c); break
+      case 4: this.groups.center.onEvent(ev.value, ev.f, ev.c); break
       case 5: this.boost = ev.value > 0; break
       case 8: this.spin(); break
       case 9: this.toggleZoom(); break
@@ -1093,11 +1096,11 @@ class ShrineEnv extends BaseEnv {
 
   onLightEvent(ev: LightEvent) {
     switch (ev.type) {
-      case 0: this.groups.back.onEvent(ev.value, ev.f); break
-      case 1: this.groups.lantern.onEvent(ev.value, ev.f); break
-      case 2: this.groups.left.onEvent(ev.value, ev.f); break
-      case 3: this.groups.right.onEvent(ev.value, ev.f); break
-      case 4: this.groups.torii.onEvent(ev.value, ev.f); break
+      case 0: this.groups.back.onEvent(ev.value, ev.f, ev.c); break
+      case 1: this.groups.lantern.onEvent(ev.value, ev.f, ev.c); break
+      case 2: this.groups.left.onEvent(ev.value, ev.f, ev.c); break
+      case 3: this.groups.right.onEvent(ev.value, ev.f, ev.c); break
+      case 4: this.groups.torii.onEvent(ev.value, ev.f, ev.c); break
       case 8: this.sway = 1; break
       case 12: this.drift = Math.max(0.4, ev.value || 1); break
       case 13: this.drift = Math.max(0.4, ev.value || 1); break

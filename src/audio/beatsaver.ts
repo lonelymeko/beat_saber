@@ -453,14 +453,14 @@ function parseLightEvents(diff: any, spb: number): LightEvent[] {
     // v2
     for (const e of diff._events) {
       if (!LIGHT_TYPES.has(e._type)) continue
-      evs.push({ t: e._time * spb, type: e._type, value: e._value | 0, f: e._floatValue ?? 1 })
+      evs.push({ t: e._time * spb, type: e._type, value: e._value | 0, f: e._floatValue ?? 1, c: chromaHex(e._customData?._color) })
     }
   } else {
     // v3
     if (Array.isArray(diff.basicBeatmapEvents)) {
       for (const e of diff.basicBeatmapEvents) {
         if (!LIGHT_TYPES.has(e.et)) continue
-        evs.push({ t: (e.b || 0) * spb, type: e.et, value: e.i | 0, f: e.f ?? 1 })
+        evs.push({ t: (e.b || 0) * spb, type: e.et, value: e.i | 0, f: e.f ?? 1, c: chromaHex(e.customData?.color) })
       }
     }
     if (Array.isArray(diff.colorBoostBeatmapEvents)) {

@@ -419,6 +419,26 @@ export class Synth {
     n.connect(f); f.connect(ng); ng.connect(this.sfx)
   }
 
+  // Realtime music level (drives menu lighting pulse)
+  analyser: AnalyserNode | null = null
+  _anBuf: Uint8Array | null = null
+
+  getLevel(): number {
+    if (!this.analyser) {
+      this.analyser = this.ctx.createAnalyser()
+      this.analyser.fftSize = 256
+      this.analyser.smoothingTimeConstant = 0.65
+      this.music.connect(this.analyser)
+      this._anBuf = new Uint8Array(new ArrayBuffer(this.analyser.frequencyBinCount))
+    }
+    const buf = this._anBuf as Uint8Array<ArrayBuffer>
+    this.analyser.getByteFrequencyData(buf)
+    let s = 0
+    const n = 24 // low-mid bins: bass-driven pulse
+    for (let i = 0; i < n; i++) s += buf[i]
+    return Math.min(1, s / n / 200)
+  }
+
   /** Subtle UI hover blip (official-style). Only plays if the context is running. */
   sfxHover() {
     if (this.ctx.state !== 'running') return

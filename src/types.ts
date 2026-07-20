@@ -54,6 +54,8 @@ export interface LightEvent {
   type: number
   value: number
   f: number
+  /** Chroma per-event color override (hex) */
+  c?: number
 }
 
 /** Everything a song's build() returns — the playable chart. */

@@ -754,6 +754,33 @@ export function useGame() {
     env.onLightEvent({ t: 0, type: 1, value: 9, f: 0.35 })  // rings faint white
     env.onLightEvent({ t: 0, type: 12, value: 1, f: 1 })
     env.onLightEvent({ t: 0, type: 13, value: 1, f: 1 })
+
+    // Big neon BEAT SABER sign (official-style, flickers like a neon tube)
+    const c = document.createElement('canvas')
+    c.width = 1024; c.height = 512
+    const g = c.getContext('2d')
+    g.textAlign = 'center'
+    g.font = 'italic 900 175px "Rajdhani", "Arial Black", sans-serif'
+    g.shadowColor = 'rgba(255,43,76,0.95)'
+    g.shadowBlur = 42
+    g.fillStyle = '#ff3b5c'
+    g.fillText('BEAT', 512, 205)
+    g.shadowColor = 'rgba(43,123,255,0.95)'
+    g.fillStyle = '#3b8bff'
+    g.fillText('SABER', 512, 415)
+    const tex = new THREE.CanvasTexture(c)
+    const sign = new THREE.Mesh(
+      new THREE.PlaneGeometry(15, 7.5),
+      new THREE.MeshBasicMaterial({
+        map: tex, transparent: true, opacity: 1,
+        blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+      }),
+    )
+    sign.position.set(10.5, 7, -26)
+    sign.rotation.y = -0.42
+    env.group.add(sign)
+    ;(env as any)._menuSign = sign
+    ;(env as any)._signSeed = Math.random() * 100
   }
 
   // Official-style song preview: selecting a song in the menu plays a looped excerpt
@@ -906,7 +933,27 @@ export function useGame() {
     if (state.value === 'menu' && !XR.active) {
       // Official-style menu backdrop: render the stage with ambient lighting
       if (!env) ensureMenuEnv()
-      if (env) env.update(dt, time)
+      if (env) {
+        // Lighting pulses with whatever is playing (preview / menu music)
+        const lv = synth ? synth.getLevel() : 0
+        const gs: any = (env as any).groups
+        if (gs) {
+          gs.ring.intensity = Math.max(gs.ring.intensity, lv * 1.2)
+          gs.back.intensity = Math.max(gs.back.intensity, lv * 0.95)
+          gs.left.intensity = Math.max(gs.left.intensity, 0.3 + lv * 0.9)
+          gs.right.intensity = Math.max(gs.right.intensity, 0.3 + lv * 0.9)
+          gs.center.intensity = Math.max(gs.center.intensity, 0.4 + lv * 0.6)
+        }
+        // Neon sign flicker: slow hum + random dropouts + music boost
+        const sign: any = (env as any)._menuSign
+        if (sign) {
+          const seed = (env as any)._signSeed || 0
+          const hum = 0.86 + 0.08 * Math.sin(time * 2.1 + seed) + 0.05 * Math.sin(time * 13.7 + seed * 3)
+          const drop = Math.sin(time * 4.3 + seed) > 0.996 || Math.sin(time * 9.1 + seed * 2) > 0.997 ? 0.35 : 1
+          sign.material.opacity = Math.min(1.3, hum * drop + lv * 0.35)
+        }
+        env.update(dt, time)
+      }
       camera.position.set(0, 1.7, 0)
       camera.rotation.z = 0
       if (composer) composer.render()
