@@ -1665,9 +1665,10 @@ export function useGame() {
   let vrDetailPanel: any = null
   let vrSelIdx = 0
   let _vrListScroll = 0
-  let _vrListMode: 'songs' | 'browse' = 'songs'
+  let _vrListMode: 'songs' | 'browse' | 'cats' = 'songs'
   let _vrBrowseList: any[] = []
   let _vrBrowseLabel = ''
+  let _vrBrowseSort: 'Rating' | 'Latest' = 'Rating'
   let _vrListDirty = true
   let _vrDetailDirty = true
   let _vrHoverKey = ''
@@ -1890,6 +1891,124 @@ export function useGame() {
     _vrListDirty = false
   }
 
+  // Same genre tags as the desktop BS overlay
+  const VR_TAGS: [string, string][] = [
+    ['', '全部'], ['anime', '动漫'], ['j-pop', 'J-POP'], ['vocaloid', 'V家'],
+    ['pop', '流行'], ['electronic', '电子'], ['dance-style', '舞曲'], ['rock', '摇滚'],
+    ['metal', '金属'], ['hip-hop-rap', '说唱'], ['classical-orchestral', '古典'],
+  ]
+  const VR_QUICK = ['YOASOBI', 'Camellia', '千本桜', 'アイドル', '米津玄師']
+
+  // BeatSaver entry: desktop-style browse panel (sort pills + genre tags + quick
+  // searches + keyboard entry) drawn on the list panel
+  function _drawVRCats() {
+    const { canvas, ctx: g, tex, regions } = vrListPanel.userData
+    const W = canvas.width, H = canvas.height
+    regions.length = 0
+    g.clearRect(0, 0, W, H)
+    _rr(g, 0, 0, W, H, 22)
+    g.fillStyle = 'rgba(8,11,24,0.94)'
+    g.fill()
+    g.strokeStyle = 'rgba(255,215,110,0.4)'
+    g.lineWidth = 2
+    _rr(g, 1, 1, W - 2, H - 2, 22)
+    g.stroke()
+
+    g.textBaseline = 'middle'
+    g.textAlign = 'left'
+    g.fillStyle = '#ffd76e'
+    g.font = 'bold 30px "Rajdhani", "PingFang SC", sans-serif'
+    g.fillText('BEATSAVER · 社区谱面', 24, LIST_HEAD / 2)
+    g.strokeStyle = 'rgba(255,215,110,0.2)'
+    g.beginPath(); g.moveTo(16, LIST_HEAD); g.lineTo(W - 16, LIST_HEAD); g.stroke()
+
+    const chip = (x: number, y: number, w: number, h: number, label: string, key: string, active: boolean, act: () => void, accent = '#7fdcff') => {
+      const hovered = _vrHoverKey === 'list:' + key
+      _rr(g, x, y, w, h, Math.min(h / 2, 24))
+      g.fillStyle = active ? accent : (hovered ? 'rgba(127,220,255,0.3)' : 'rgba(127,220,255,0.12)')
+      g.fill()
+      g.fillStyle = active ? '#0a0e1e' : '#cfe8ff'
+      g.textAlign = 'center'
+      g.fillText(label, x + w / 2, y + h / 2 + 1)
+      regions.push({ x, y, w, h, key, act })
+    }
+    const section = (label: string, y: number) => {
+      g.textAlign = 'left'
+      g.fillStyle = '#7d88ad'
+      g.font = '20px "Rajdhani", "PingFang SC", sans-serif'
+      g.fillText(label, 24, y)
+    }
+
+    section('排序 SORT', 122)
+    g.font = 'bold 23px "Rajdhani", "PingFang SC", sans-serif'
+    chip(24, 142, 180, 52, '热门 TOP', 'sortR', _vrBrowseSort === 'Rating', () => {
+      _vrBrowseSort = 'Rating'
+      vrBrowserFetch('热门 TOP', () => browseBeatSaver('Rating'))
+    })
+    chip(218, 142, 180, 52, '最新 LATEST', 'sortL', _vrBrowseSort === 'Latest', () => {
+      _vrBrowseSort = 'Latest'
+      vrBrowserFetch('最新 LATEST', () => browseBeatSaver('Latest'))
+    })
+
+    section('分类 GENRE', 236)
+    g.font = 'bold 22px "Rajdhani", "PingFang SC", sans-serif'
+    let cx = 24, cy = 256
+    for (const [tag, label] of VR_TAGS) {
+      const w = Math.ceil(g.measureText(label).width) + 36
+      if (cx + w > W - 24) { cx = 24; cy += 62 }
+      const sortLabel = _vrBrowseSort === 'Rating' ? '热门' : '最新'
+      chip(cx, cy, w, 50, label, 'tag' + tag, false, () => {
+        vrBrowserFetch(`${sortLabel} · ${label}`, () => browseBeatSaver(_vrBrowseSort, 0, tag))
+      })
+      cx += w + 12
+    }
+    cy += 62
+
+    section('快捷搜索 QUICK', cy + 32)
+    g.font = 'bold 22px "Rajdhani", "PingFang SC", sans-serif'
+    cx = 24; cy += 52
+    for (const q of VR_QUICK) {
+      const w = Math.ceil(g.measureText(q).width) + 36
+      if (cx + w > W - 24) { cx = 24; cy += 62 }
+      chip(cx, cy, w, 50, q, 'quick' + q, false, () => {
+        vrBrowserFetch(q, () => searchBeatSaver(q))
+      })
+      cx += w + 12
+    }
+
+    // Keyboard free-text search
+    const ky = H - LIST_FOOT - 104
+    _rr(g, 24, ky, W - 48, 76, 18)
+    g.fillStyle = _vrHoverKey === 'list:kb' ? 'rgba(255,215,110,0.45)' : 'rgba(255,215,110,0.16)'
+    g.fill()
+    g.strokeStyle = 'rgba(255,215,110,0.5)'
+    g.lineWidth = 1.5
+    _rr(g, 24, ky, W - 48, 76, 18)
+    g.stroke()
+    g.fillStyle = '#ffd76e'
+    g.font = 'bold 27px "Rajdhani", "PingFang SC", sans-serif'
+    g.textAlign = 'center'
+    g.fillText('键盘搜索 · 输入歌名', W / 2, ky + 39)
+    regions.push({ x: 24, y: ky, w: W - 48, h: 76, key: 'kb', act: () => vrKeyboardShow() })
+
+    // Footer: back to the song list
+    const fy = H - LIST_FOOT + 8
+    _rr(g, 16, fy, W - 32, LIST_FOOT - 20, 14)
+    g.fillStyle = _vrHoverKey === 'list:back' ? 'rgba(255,110,199,0.45)' : 'rgba(255,110,199,0.16)'
+    g.fill()
+    g.fillStyle = '#ff9ed9'
+    g.font = 'bold 25px "Rajdhani", "PingFang SC", sans-serif'
+    g.fillText('← 返回歌单', W / 2, fy + (LIST_FOOT - 20) / 2)
+    regions.push({ x: 16, y: fy, w: W - 32, h: LIST_FOOT - 20, key: 'back', act: () => fillVRMenuSongs() })
+    tex.needsUpdate = true
+    _vrListDirty = false
+  }
+
+  function _redrawVRListPanel() {
+    if (_vrListMode === 'cats') _drawVRCats()
+    else _drawVRList()
+  }
+
   function _drawVRDetail() {
     const { canvas, ctx: g, tex, regions } = vrDetailPanel.userData
     const W = canvas.width, H = canvas.height
@@ -1933,8 +2052,32 @@ export function useGame() {
     g.font = 'bold 22px "Rajdhani", "PingFang SC", sans-serif'
     g.fillText(_fitText(g, `${s.style || ''} · ${s.bpm} BPM`, W - 250), 222, 158)
 
+    // Graphics quality pills (same as the desktop quality-line)
+    g.fillStyle = '#7d88ad'
+    g.font = '20px "Rajdhani", "PingFang SC", sans-serif'
+    g.textAlign = 'left'
+    g.fillText('画质', 28, 232)
+    let qx = 90
+    for (const [qk, ql] of [['low', '低'], ['medium', '中'], ['high', '高']] as [string, string][]) {
+      const cur = quality.value === qk
+      const hovered = _vrHoverKey === 'detail:q' + qk
+      _rr(g, qx, 210, 74, 44, 22)
+      g.fillStyle = cur ? '#7fdcff' : (hovered ? 'rgba(127,220,255,0.3)' : 'rgba(127,220,255,0.12)')
+      g.fill()
+      g.fillStyle = cur ? '#0a0e1e' : '#cfe8ff'
+      g.font = 'bold 22px "Rajdhani", "PingFang SC", sans-serif'
+      g.textAlign = 'center'
+      g.fillText(ql, qx + 37, 233)
+      regions.push({ x: qx, y: 210, w: 74, h: 44, key: 'q' + qk, act: () => {
+        setQuality(qk)
+        _vrDetailDirty = true
+      } })
+      qx += 86
+    }
+    g.textAlign = 'left'
+
     // Difficulty pills (same behavior as the desktop pills)
-    let py = 236
+    let py = 272
     if (s.diffList && s.diffList.length > 1) {
       g.font = 'bold 22px "Rajdhani", "PingFang SC", sans-serif'
       let px = 28
@@ -2019,21 +2162,14 @@ export function useGame() {
     _vrDetailDirty = true
   }
 
-  // VR BeatSaver browser: preset categories → results (desktop-style list) → laser-click download
+  // VR BeatSaver browser: desktop-style browse panel → results list → laser-click download
   function vrBrowserCats() {
     clearVRMenuCards()
-    const cats: [string, string, () => void][] = [
-      ['热门 TOP', 'Rating 最高', () => vrBrowserFetch('热门 TOP', () => browseBeatSaver('Rating'))],
-      ['最新 LATEST', '新上架谱面', () => vrBrowserFetch('最新 LATEST', () => browseBeatSaver('Latest'))],
-      ['键盘搜索', '自由输入', () => vrKeyboardShow()],
-      ['YOASOBI', '快捷搜索', () => vrBrowserFetch('YOASOBI', () => searchBeatSaver('YOASOBI'))],
-      ['Camellia', '快捷搜索', () => vrBrowserFetch('Camellia', () => searchBeatSaver('Camellia'))],
-      ['千本桜', '快捷搜索', () => vrBrowserFetch('千本桜', () => searchBeatSaver('千本桜'))],
-      ['アイドル', '快捷搜索', () => vrBrowserFetch('アイドル', () => searchBeatSaver('アイドル'))],
-      ['米津玄師', '快捷搜索', () => vrBrowserFetch('米津玄師', () => searchBeatSaver('米津玄師'))],
-      ['← 返回歌单', 'BACK', () => fillVRMenuSongs()],
-    ]
-    _placeVRCards(cats.map(([main, sub, act]) => _makeVRCard(main, sub, '', '#7fdcff', act)))
+    _ensureVRPanels()
+    _vrListMode = 'cats'
+    _vrListScroll = 0
+    _vrListDirty = true
+    _vrDetailDirty = true
   }
 
   // ===== VR keyboard (free-text BeatSaver search, laser-typed) =====
@@ -2261,7 +2397,7 @@ export function useGame() {
         let ay = 0
         if (Math.abs(axes[3] || 0) > 0.15) ay = axes[3]
         else if (Math.abs(axes[1] || 0) > 0.15) ay = axes[1]
-        if (ay) {
+        if (ay && _vrListMode !== 'cats') {
           _vrListScroll += ay * dt * 850
           _vrListDirty = true
         }
@@ -2287,7 +2423,7 @@ export function useGame() {
       }
     }
 
-    if (vrListPanel && _vrListDirty) _drawVRList()
+    if (vrListPanel && _vrListDirty) _redrawVRListPanel()
     if (vrDetailPanel && _vrDetailDirty) _drawVRDetail()
   }
 
@@ -2713,6 +2849,12 @@ export function useGame() {
     handleMusicFile, searchSong, downloadSong, deleteDownloadedSong, enterVR, dumpLog, dispose,
     uiClick, uiHover, previewSong, quality, setQuality, setSongDifficulty,
     // Debug: render the VR panels in desktop mode for screenshot verification
-    _debugVRPanels: (hover?: string) => { buildVRMenu(); _vrHoverKey = hover || ''; _drawVRList(); _drawVRDetail() },
+    _debugVRPanels: (hover?: string, mode?: string) => {
+      buildVRMenu()
+      _vrHoverKey = hover || ''
+      if (mode === 'cats') { _vrListMode = 'cats' }
+      _redrawVRListPanel()
+      _drawVRDetail()
+    },
   }
 }
