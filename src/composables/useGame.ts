@@ -99,7 +99,7 @@ export function useGame() {
   function init(canvas) {
     renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance', alpha: false, canvas })
     renderer.setSize(window.innerWidth, window.innerHeight)
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    applyPixelBudget()
     renderer.setClearColor(0x050510, 1)
     renderer.xr.enabled = true
     renderer.xr.setReferenceSpaceType('local-floor')
@@ -146,8 +146,12 @@ export function useGame() {
       if (XR.active) return
       camera.aspect = window.innerWidth / window.innerHeight
       camera.updateProjectionMatrix()
+      applyPixelBudget()
       renderer.setSize(window.innerWidth, window.innerHeight)
-      if (composer) composer.setSize(window.innerWidth, window.innerHeight)
+      if (composer) {
+        composer.setPixelRatio(renderer.getPixelRatio())
+        composer.setSize(window.innerWidth, window.innerHeight)
+      }
     })
 
     checkXRSupport()
@@ -1045,12 +1049,25 @@ export function useGame() {
   }
 
   // ========== Graphics quality ==========
+  // Total-render-pixel budget: big Retina windows (Mac) were pushing 5-8x the
+  // pixels of a phone through full-res bloom. Small windows keep dpr sharpness;
+  // oversized ones drop pixelRatio instead of frame rate.
+  const PIXEL_BUDGET: Record<string, number> = { high: 2.6e6, medium: 1.9e6, low: 1.3e6 }
+  function applyPixelBudget() {
+    if (!renderer) return
+    const w = window.innerWidth, h = window.innerHeight
+    const budget = PIXEL_BUDGET[quality.value] || 2.6e6
+    const pr = Math.min(window.devicePixelRatio || 1, 2, Math.sqrt(budget / (w * h)))
+    renderer.setPixelRatio(Math.max(0.75, pr))
+  }
+
   function rebuildComposer() {
     composer = null
     if (quality.value === 'low') return
     try {
       const scale = quality.value === 'medium' ? 0.5 : 1
       composer = new EffectComposer(renderer)
+      composer.setPixelRatio(renderer.getPixelRatio())
       composer.addPass(new RenderPass(scene, camera))
       const bloom = new UnrealBloomPass(
         new THREE.Vector2(window.innerWidth * scale, window.innerHeight * scale),
@@ -1064,6 +1081,8 @@ export function useGame() {
     if (q !== 'high' && q !== 'medium' && q !== 'low') return
     quality.value = q
     localStorage.setItem('bs_quality', q)
+    applyPixelBudget()
+    renderer?.setSize(window.innerWidth, window.innerHeight)
     rebuildComposer()
     if (synth) synth.sfxClick()
   }
@@ -1080,7 +1099,9 @@ export function useGame() {
     env.onLightEvent({ t: 0, type: 12, value: 1, f: 1 })
     env.onLightEvent({ t: 0, type: 13, value: 1, f: 1 })
 
-    // Big neon BEAT SABER sign (official-style, flickers like a neon tube)
+    // Big neon BEAT SABER sign (official-style, flickers like a neon tube).
+    // NOTE: the viewer's logo.obj/logotex is "BEATSAVER VIEWER · SUPERMEDIUM"
+    // branding, not the Beat Saber logo — keep our own sign instead.
     const c = document.createElement('canvas')
     c.width = 1024; c.height = 512
     const g = c.getContext('2d')
