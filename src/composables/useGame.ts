@@ -418,10 +418,11 @@ export function useGame() {
     obj.position.set(px, py, pz)
     const lrot = readNoodleProp(d, 'localRotation', lifeP)
     if (lrot || rot) {
+      // Preserve the block's cut-direction base rotation (whole-block rotZ)
       obj.rotation.set(
         ((lrot?.[0] || 0) + (rot?.[0] || 0)) * DEG,
         ((lrot?.[1] || 0) + (rot?.[1] || 0)) * DEG,
-        ((lrot?.[2] || 0) + (rot?.[2] || 0)) * DEG,
+        ((lrot?.[2] || 0) + (rot?.[2] || 0)) * DEG + (obj.userData.rotZ || 0),
       )
     }
     const sc = readNoodleProp(d, 'scale', lifeP)
@@ -1430,14 +1431,15 @@ export function useGame() {
           if (n.ownMat) n.ownMat.opacity = dis
         } else {
         const born = (z - (G.hitZ - SPAWN_DIST)) / 14
+        const baseRotZ = n.g.userData.rotZ || 0
         if (born < 1) {
           const e = Math.max(0, Math.min(1, born))
           const s = 0.45 + 0.55 * e
           n.g.scale.set(s, s, s)
-          n.g.rotation.z = n.g.userData.spin * (1 - e)
+          n.g.rotation.z = baseRotZ + n.g.userData.spin * (1 - e)
         } else if (n.g.scale.x !== 1) {
           n.g.scale.set(1, 1, 1)
-          n.g.rotation.z = 0
+          n.g.rotation.z = baseRotZ
         }
         }
         if (n.d.type === 3) n.g.rotation.y += dt * 2

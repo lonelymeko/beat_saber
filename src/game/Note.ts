@@ -43,16 +43,18 @@ export function createNoteMesh(d, mats, textures) {
     g.add(new THREE.Mesh(noteGeo, bodyMatFor(d)))
     const rot = DIR_ROT[d.dir]
     const isDot = d.dir === 8
-    // Official atlas sprite for the face glyph when loaded (per saber color)
+    // Official atlas sprite for the face glyph (per saber color); its glow is
+    // baked into the sprite, and materials exist from init — no fallback
     const sprM = d.type === 0
       ? (isDot ? textures.dotMatR : textures.arrowMatR)
       : (isDot ? textures.dotMatB : textures.arrowMatB)
-    // Official atlas sprite only (glow is baked into the sprite, no halo);
-    // sprite materials exist from init, so no fallback path is needed
     const face = new THREE.Mesh(isDot ? textures.dotGeoOff : textures.arrowGeoOff, sprM)
     face.position.z = 0.258
-    face.rotation.z = rot
     g.add(face)
+    // Official behavior (and beatsaver-viewer): the WHOLE block rotates for
+    // the cut direction — diagonals read as tilted cubes, not a tilted glyph
+    g.rotation.z = rot
+    g.userData.rotZ = rot
   }
   g.position.set(d.wx ?? LANE_X[d.x], d.wy ?? ROW_Y[d.y], -SPAWN_DIST)
   g.userData.spin = (Math.random() - 0.5) * 1.4
