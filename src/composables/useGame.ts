@@ -76,6 +76,7 @@ export function useGame() {
     noteIdx: 0, wallIdx: 0, lightIdx: 0, arcIdx: 0,
     notes: [], walls: [], halves: [], bursts: [], texts: [], arcs: [],
     com: 0, jud: 0, hits: 0, maxCombo: 0,
+    playerTrack: null as string | null, trackParents: {} as Record<string, string>,
     level: 0, prog: 0, en: 0.5,
     cumMax: [], totalNotes: 0,
     lean: 0, leanTarget: 0, shake: 0,
@@ -363,6 +364,8 @@ export function useGame() {
     if (!evs) return
     while (G.noodleIdx < evs.length && evs[G.noodleIdx].t <= t) {
       const ev = evs[G.noodleIdx++]
+      if (ev.player) { G.playerTrack = ev.player; continue }
+      if (ev.parent) { for (const c of ev.children) G.trackParents[c] = ev.parent; continue }
       for (const name of ev.tracks) {
         const tr = getNoodleTrack(name)
         if (ev.path) Object.assign(tr.path, ev.props)
@@ -392,10 +395,16 @@ export function useGame() {
     }
     if (d.track) {
       for (const name of d.track) {
-        const tr = G.noodleTracks[name]
-        if (!tr) continue
-        if (tr.val[prop] != null) merge(tr.val[prop])
-        if (tr.path[prop]) merge(samplePts(tr.path[prop], lifeP))
+        // Walk the AssignTrackParent chain: parent transforms compose onto children
+        let nm = name, depth = 0
+        while (nm && depth++ < 5) {
+          const tr = G.noodleTracks[nm]
+          if (tr) {
+            if (tr.val[prop] != null) merge(tr.val[prop])
+            if (tr.path[prop]) merge(samplePts(tr.path[prop], lifeP))
+          }
+          nm = G.trackParents[nm]
+        }
       }
     }
     if (d.anim?.[prop]) merge(samplePts(d.anim[prop], lifeP))
@@ -882,6 +891,8 @@ export function useGame() {
     G.arcIdx = 0
     G.noodleIdx = 0
     G.noodleTracks = {}
+    G.playerTrack = null
+    G.trackParents = {}
     G.lastBeat = -1
     G.lastCount = 99
     G.lean = 0
@@ -1566,6 +1577,29 @@ export function useGame() {
         G.lean += (G.leanTarget - G.lean) * (1 - Math.exp(-dt * 9))
         camera.position.x = G.lean
         camera.rotation.z = -G.lean * 0.07
+        // AssignPlayerToTrack: the camera rides the player track (desktop only —
+        // in VR the headset owns the pose). Same grid→world mapping as objects.
+        camera.position.y = 1.7
+        camera.position.z = 0
+        camera.rotation.x = 0
+        camera.rotation.y = 0
+        if (G.playerTrack) {
+          const tr = G.noodleTracks[G.playerTrack]
+          if (tr) {
+            const p = tr.val.position
+            if (p) {
+              camera.position.x += (p[0] || 0) * 0.6
+              camera.position.y += (p[1] || 0) * 0.5
+              camera.position.z -= (p[2] || 0) * 0.6
+            }
+            const r = tr.val.rotation || tr.val.localRotation
+            if (r) {
+              camera.rotation.x = (r[0] || 0) * (Math.PI / 180)
+              camera.rotation.y = -(r[1] || 0) * (Math.PI / 180)
+              camera.rotation.z += (r[2] || 0) * (Math.PI / 180)
+            }
+          }
+        }
         if (G.shake > 0.001) {
           G.shake *= Math.exp(-dt * 7)
           camera.position.y = 1.7 + (Math.random() - 0.5) * G.shake * 0.05

@@ -370,6 +370,16 @@ function parseNoodle(chart: any, spb: number) {
   const events: any[] = []
   let skipped = 0
   for (const e of cd._customEvents || []) {
+    const dd = e._data || {}
+    if (e._type === 'AssignPlayerToTrack') {
+      if (dd._track) events.push({ t: (e._time || 0) * spb, player: dd._track })
+      continue
+    }
+    if (e._type === 'AssignTrackParent') {
+      const children = (Array.isArray(dd._childrenTracks) ? dd._childrenTracks : [dd._childrenTracks]).filter(Boolean)
+      if (dd._parentTrack && children.length) events.push({ t: (e._time || 0) * spb, parent: dd._parentTrack, children })
+      continue
+    }
     if (e._type !== 'AnimateTrack' && e._type !== 'AssignPathAnimation') { skipped++; continue }
     const d = e._data || {}
     const tracks = (Array.isArray(d._track) ? d._track : [d._track]).filter(Boolean)
