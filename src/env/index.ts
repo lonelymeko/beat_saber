@@ -1288,9 +1288,11 @@ class StageChannel {
   update(dt: number) {
     this.cur.lerp(this.target, 1 - Math.exp(-dt * 5.5))
     this.uniform.value.copy(this.cur)
+    // Menu pulse: interpret intensity as dim↔bright (1.0 ≈ normal). The stage
+    // shaders are additive and sit under bloom — never multiply past ~1.3 or
+    // the whole backdrop blows out.
     if (this.intensity > 0.003) {
-      this.uniform.value.lerp(new THREE.Color(0xffffff), Math.min(0.6, this.intensity * 0.4))
-      this.uniform.value.multiplyScalar(1 + this.intensity)
+      this.uniform.value.multiplyScalar(0.55 + Math.min(this.intensity, 1.3) * 0.6)
       this.intensity *= Math.exp(-dt * 4)
     }
   }
