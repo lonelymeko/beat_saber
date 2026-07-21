@@ -34,27 +34,18 @@ export class HandTracker {
       await v.play()
       this.video = v
       const { FilesetResolver, HandLandmarker } = await import('@mediapipe/tasks-vision')
-      // Model + wasm live in the object-storage bucket (game server bandwidth
-      // is tiny); the same-origin copy is only a fallback if the bucket fails
-      const BUCKET = 'https://xi-cloud-disk.tos-cn-beijing.volces.com/beat_saber/mediapipe'
-      const bases = [BUCKET, '/mediapipe']
-      for (const base of bases) {
-        try {
-          const files = await FilesetResolver.forVisionTasks(base + '/wasm')
-          const opts = (delegate: 'GPU' | 'CPU') => ({
-            baseOptions: { modelAssetPath: base + '/hand_landmarker.task', delegate },
-            runningMode: 'VIDEO' as const,
-            numHands: 2,
-          })
-          try {
-            this.lm = await HandLandmarker.createFromOptions(files, opts('GPU'))
-          } catch (e) {
-            this.lm = await HandLandmarker.createFromOptions(files, opts('CPU'))
-          }
-          break
-        } catch (e) {
-          if (base === bases[bases.length - 1]) throw e
-        }
+      // Same-origin paths only — nginx 302s /mediapipe/ to the storage bucket,
+      // so no storage config lives in frontend code
+      const files = await FilesetResolver.forVisionTasks('/mediapipe/wasm')
+      const opts = (delegate: 'GPU' | 'CPU') => ({
+        baseOptions: { modelAssetPath: '/mediapipe/hand_landmarker.task', delegate },
+        runningMode: 'VIDEO' as const,
+        numHands: 2,
+      })
+      try {
+        this.lm = await HandLandmarker.createFromOptions(files, opts('GPU'))
+      } catch (e) {
+        this.lm = await HandLandmarker.createFromOptions(files, opts('CPU'))
       }
       this.ready = true
       this.error = ''
@@ -77,9 +68,9 @@ export class HandTracker {
       const pts = res.landmarks[i]
       const label = res.handedness?.[i]?.[0]?.categoryName
       if (!pts || !label) continue
-      // The webcam frame is un-mirrored, so MediaPipe's 'Left' is the user's
-      // right hand; x is mirrored so on-screen movement matches the player.
-      const hand: 'left' | 'right' = label === 'Left' ? 'right' : 'left'
+      // User-verified mapping for the un-mirrored webcam frame; x is mirrored
+      // below so on-screen movement matches the player.
+      const hand: 'left' | 'right' = label === 'Left' ? 'left' : 'right'
       const tip = pts[8] // index fingertip
       const h = this.hands[hand]
       h.x = 1 - tip.x
