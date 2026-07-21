@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
 import type { LightEvent } from '../types'
 
 type BasicMesh = THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>
@@ -1168,6 +1169,284 @@ class ShrineEnv extends BaseEnv {
   }
 }
 
+// ===== Strict official stage, ported 1:1 from supermedium/beatsaver-viewer (MIT) =====
+// stagenormal/stageadditive OBJ runway + atlas mask shaders, 3+3 rotating side
+// lasers, smoke ring, reflective floor shader. Light events drive the same
+// targets as the viewer: 0=bg 1=tunnel 2/3=left/right lasers 4=floor 12/13=speed.
+
+const VS_STAGE = `
+  varying vec2 uvs;
+  varying vec3 worldPos;
+  void main() {
+    uvs.xy = uv.xy;
+    vec4 p = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+    worldPos = (modelMatrix * vec4( position, 1.0 )).xyz;
+    gl_Position = p;
+  }
+`
+
+const FS_STAGE_NORMAL = `
+  #define FOG_RADIUS  55.0
+  #define FOG_FALLOFF 48.0
+  #define FOG_COLOR_MULT 0.8
+  varying vec2 uvs;
+  varying vec3 worldPos;
+  uniform vec3 skyColor;
+  uniform vec3 backglowColor;
+  uniform sampler2D src;
+  void main() {
+    vec4 col = texture2D(src, uvs);
+    float mask;
+    mask = step(0.5, uvs.x);
+    col.xyz = mix(col.xyz * skyColor, col.xyz, mask);
+    mask = step(0.5, uvs.x) * step(0.5, uvs.y) * (1.0 - step(0.75, uvs.x));
+    col.xyz = mix(col.xyz, col.xyz * backglowColor, mask);
+    float fogDensity = 1.0 - pow(clamp(distance(worldPos, vec3(0., 0., -FOG_RADIUS)) / FOG_FALLOFF, 0.0, 1.0), 1.5);
+    fogDensity += clamp(0.2 - pow(distance(worldPos, vec3(0.0, 0.0, worldPos.z)) / 10.0, 2.0), 0.0, 1.0);
+    col.xyz = mix(col.xyz, backglowColor * FOG_COLOR_MULT, fogDensity);
+    gl_FragColor = col;
+  }
+`
+
+const FS_STAGE_ADDITIVE = `
+  varying vec2 uvs;
+  varying vec3 worldPos;
+  uniform vec3 tunnelNeon;
+  uniform vec3 leftLaser;
+  uniform vec3 rightLaser;
+  uniform vec3 floorNeon;
+  uniform vec3 textGlow;
+  uniform sampler2D src;
+  void main() {
+    float mask;
+    vec4 col = texture2D(src, uvs);
+    mask = step(0.87, uvs.x) *  step(0.5, uvs.y) * (1.0 - step(0.935, uvs.x)) * ( 1.0 - step(0.75, uvs.y));
+    col.xyz = mix(col.xyz, col.xyz * tunnelNeon, mask);
+    mask = step(0.935, uvs.x) * step(0.5, uvs.y) * ( 1.0 - step(0.75, uvs.y));
+    col.xyz = mix(col.xyz, col.xyz * floorNeon, mask);
+    mask = step(0.5, uvs.x) * (1.0 - step(0.625, uvs.x)) * (1.0 - step(0.5, uvs.y));
+    col.xyz = mix(col.xyz, col.xyz * leftLaser, mask);
+    mask = step(0.625, uvs.x) * (1.0 - step(0.75, uvs.x)) * (1.0 - step(0.5, uvs.y));
+    col.xyz = mix(col.xyz, col.xyz * rightLaser, mask);
+    mask = step(0.87, uvs.x) *  step(0.25, uvs.y) * (1.0 - step(0.935, uvs.x)) * ( 1.0 - step(0.5, uvs.y));
+    col.xyz = mix(col.xyz, col.xyz * textGlow, mask);
+    gl_FragColor = col;
+  }
+`
+
+const FS_FLOOR = `
+  varying vec2 uvs;
+  varying vec3 worldPos;
+  uniform sampler2D normalMap;
+  uniform sampler2D envMap;
+  #define BORDER_COLOR vec3(0.0, 0.439, 0.541)
+  void main() {
+    vec2 p = uvs.xy - 0.5;
+    vec3 border = vec3(smoothstep(0.49, 0.495, abs(p.x)) + smoothstep(0.49, 0.495, abs(p.y)));
+    border += BORDER_COLOR * (smoothstep(0.475, 0.495, abs(p.x)) + smoothstep(0.475, 0.495, abs(p.y))) * .7;
+    vec3 normal = normalize(texture2D(normalMap, uvs).xyz);
+    vec3 reflectVec = normalize(reflect(normalize(worldPos - cameraPosition), normal));
+    vec3 ref = texture2D(envMap, reflectVec.xy * vec2(0.3, 1.0) + vec2(0.75, -cameraPosition.z * 0.05)).xyz * 0.14;
+    gl_FragColor = vec4(ref + border, 1.0);
+  }
+`
+
+// One shader-uniform color channel with the viewer's event semantics:
+// on = snap, fade = bright→base, off = decay to off; menu compat via .intensity
+class StageChannel {
+  cur = new THREE.Color(0, 0, 0)
+  target = new THREE.Color(0, 0, 0)
+  intensity = 0 // extra brightness the menu pulse can push (decays)
+  private custom: THREE.Color | null = null
+  private family: 'L' | 'R' | 'W' = 'R'
+  constructor(
+    public uniform: { value: THREE.Color },
+    public pal: { L: THREE.Color, LB: THREE.Color, R: THREE.Color, RB: THREE.Color, W: THREE.Color, off: THREE.Color },
+  ) {}
+  onEvent(value: number, f = 1, customColor?: number) {
+    const v = value | 0
+    if (v === 0) { this.target.copy(this.pal.off); this.custom = null; return }
+    this.custom = customColor != null ? new THREE.Color(customColor) : null
+    this.family = v <= 4 ? 'R' : v <= 8 ? 'L' : 'W'
+    const kind = (v - 1) % 4 // 0=on 1=flash 2=fade 3=transition
+    const base = this.custom || this.pal[this.family]
+    const bright = this.custom
+      ? this.custom.clone().lerp(new THREE.Color(0xffffff), 0.45)
+      : (this.family === 'W' ? this.pal.W : this.pal[(this.family + 'B') as 'LB' | 'RB'])
+    if (kind === 2) {
+      // fade: start bright, settle on base (viewer's *fade animations)
+      this.cur.copy(bright).multiplyScalar(Math.min(1.4, f * 1.1))
+      this.target.copy(base).multiplyScalar(f)
+    } else if (kind === 1) {
+      this.cur.copy(bright).multiplyScalar(Math.min(1.5, f * 1.25))
+      this.target.copy(base).multiplyScalar(f)
+    } else {
+      this.cur.copy(base).multiplyScalar(f)
+      this.target.copy(base).multiplyScalar(f)
+    }
+  }
+  update(dt: number) {
+    this.cur.lerp(this.target, 1 - Math.exp(-dt * 5.5))
+    this.uniform.value.copy(this.cur)
+    if (this.intensity > 0.003) {
+      this.uniform.value.lerp(new THREE.Color(0xffffff), Math.min(0.6, this.intensity * 0.4))
+      this.uniform.value.multiplyScalar(1 + this.intensity)
+      this.intensity *= Math.exp(-dt * 4)
+    }
+  }
+}
+
+class ViewerStage extends BaseEnv {
+  groups: any
+  private stageNormalMat: THREE.ShaderMaterial
+  private stageAdditiveMat: THREE.ShaderMaterial
+  private lasers: { left: THREE.Object3D[], right: THREE.Object3D[] } = { left: [], right: [] }
+  private laserSpeed = { left: 0, right: 0 }
+  private smoke: THREE.Object3D | null = null
+  private channels: StageChannel[]
+
+  constructor(scene: THREE.Scene, cl: number, cr: number) {
+    super(scene, cl, cr)
+    scene.background = new THREE.Color(0x000000)
+    scene.fog = null
+
+    const tl = new THREE.TextureLoader()
+    const atlas = tl.load('/models/stage/atlas.png')
+    const isDefault = cl === 0xff2b2b && cr === 0x2b9eff
+    const fam = (hex: number, dim: number, brighten: number) => ({
+      base: new THREE.Color(hex).multiplyScalar(dim),
+      bright: new THREE.Color(hex).lerp(new THREE.Color(0xffffff), brighten),
+    })
+    // Viewer palette verbatim for default colors; mapper env colors otherwise
+    const NEON = isDefault
+      ? { L: new THREE.Color('#f01978'), LB: new THREE.Color('#ff70b5'), R: new THREE.Color('#00708a'), RB: new THREE.Color('#87c2ff'), W: new THREE.Color(0xdfe8ff), off: new THREE.Color('#000000') }
+      : { L: fam(cl, 0.9, 0).base, LB: fam(cl, 1, 0.5).bright, R: fam(cr, 0.9, 0).base, RB: fam(cr, 1, 0.5).bright, W: new THREE.Color(0xdfe8ff), off: new THREE.Color('#000000') }
+    const BG = isDefault
+      ? { L: new THREE.Color('#ff1f81'), LB: new THREE.Color('#ff6bb0'), R: new THREE.Color('#379f5e'), RB: new THREE.Color('#4fd983'), W: new THREE.Color(0xcfd8e8), off: new THREE.Color('#081a0f') }
+      : { L: fam(cl, 0.8, 0).base, LB: fam(cl, 1, 0.4).bright, R: fam(cr, 0.8, 0).base, RB: fam(cr, 1, 0.4).bright, W: new THREE.Color(0xcfd8e8), off: new THREE.Color(0x050810) }
+
+    this.stageNormalMat = new THREE.ShaderMaterial({
+      uniforms: {
+        skyColor: { value: new THREE.Color('#840d42') },
+        backglowColor: { value: new THREE.Color('#379f5e') },
+        src: { value: atlas },
+      },
+      vertexShader: VS_STAGE, fragmentShader: FS_STAGE_NORMAL, fog: false, transparent: true,
+    })
+    this.stageAdditiveMat = new THREE.ShaderMaterial({
+      uniforms: {
+        tunnelNeon: { value: new THREE.Color('#f01978') },
+        floorNeon: { value: new THREE.Color('#f01978') },
+        leftLaser: { value: new THREE.Color('#00708a') },
+        rightLaser: { value: new THREE.Color('#00708a') },
+        textGlow: { value: new THREE.Color('#000000') },
+        src: { value: atlas },
+      },
+      vertexShader: VS_STAGE, fragmentShader: FS_STAGE_ADDITIVE,
+      blending: THREE.AdditiveBlending, fog: false, transparent: true, depthWrite: false,
+    })
+
+    const bg = new StageChannel(this.stageNormalMat.uniforms.backglowColor as any, BG as any)
+    const tunnel = new StageChannel(this.stageAdditiveMat.uniforms.tunnelNeon as any, NEON as any)
+    const floor = new StageChannel(this.stageAdditiveMat.uniforms.floorNeon as any, NEON as any)
+    const left = new StageChannel(this.stageAdditiveMat.uniforms.leftLaser as any, NEON as any)
+    const right = new StageChannel(this.stageAdditiveMat.uniforms.rightLaser as any, NEON as any)
+    this.channels = [bg, tunnel, floor, left, right]
+    // Menu-pulse compatibility aliases (ring/back/center used by the menu tick)
+    this.groups = { bg, tunnel, floor, left, right, ring: tunnel, back: bg, center: floor }
+    // Boot state matches the viewer's resetColors
+    bg.onEvent(1, 1); tunnel.onEvent(5, 1); floor.onEvent(5, 1); left.onEvent(1, 1); right.onEvent(1, 1)
+
+    const stage = new THREE.Group()
+    stage.position.set(0, -1, 0)
+    this.group.add(stage)
+
+    const loader = new OBJLoader()
+    const addObj = (url: string, mat: THREE.Material, onto: THREE.Object3D, pos?: [number, number, number]) => {
+      loader.load(url, (obj) => {
+        obj.traverse((o: any) => { if (o.isMesh) o.material = mat })
+        if (pos) obj.position.set(pos[0], pos[1], pos[2])
+        onto.add(obj)
+      })
+    }
+    addObj('/models/stage/stagenormal.obj', this.stageNormalMat, stage)
+    addObj('/models/stage/stageadditive.obj', this.stageAdditiveMat, stage)
+    // 3+3 rotating side lasers, positions from the viewer's stage template
+    const lpos: [number, number, number][] = [[-6, 2.3, -41], [-10, 0, -40], [-14, -3, -39]]
+    const rpos: [number, number, number][] = [[6, 4, -38], [10, 2, -37], [14, -1.5, -36]]
+    lpos.forEach(p => loader.load('/models/stage/leftlaser.obj', (obj) => {
+      obj.traverse((o: any) => { if (o.isMesh) o.material = this.stageAdditiveMat })
+      obj.position.set(p[0], p[1], p[2])
+      stage.add(obj)
+      this.lasers.left.push(obj)
+    }))
+    rpos.forEach(p => loader.load('/models/stage/rightlaser.obj', (obj) => {
+      obj.traverse((o: any) => { if (o.isMesh) o.material = this.stageAdditiveMat })
+      obj.position.set(p[0], p[1], p[2])
+      stage.add(obj)
+      this.lasers.right.push(obj)
+    }))
+    // Smoke ring slowly rotating around the platform
+    loader.load('/models/stage/smoke.obj', (obj) => {
+      const smokeMat = new THREE.MeshBasicMaterial({ map: atlas, transparent: true, depthWrite: false })
+      obj.traverse((o: any) => { if (o.isMesh) o.material = smokeMat })
+      obj.position.set(0, 1.4, 0)
+      stage.add(obj)
+      this.smoke = obj
+    })
+    // Reflective floor plate under the player
+    const floorTexN = tl.load('/models/stage/floornormals.png')
+    const floorTexE = tl.load('/models/stage/floorenv.jpg')
+    const floorMat = new THREE.ShaderMaterial({
+      uniforms: { normalMap: { value: floorTexN }, envMap: { value: floorTexE } },
+      vertexShader: VS_STAGE, fragmentShader: FS_FLOOR, fog: false,
+    })
+    const floorMesh = new THREE.Mesh(new THREE.PlaneGeometry(3, 3), floorMat)
+    floorMesh.rotation.x = -Math.PI / 2
+    floorMesh.position.set(0, 0.001, -1)
+    this.group.add(floorMesh)
+  }
+
+  onLightEvent(ev: LightEvent) {
+    switch (ev.type) {
+      case 0: this.groups.bg.onEvent(ev.value, ev.f, ev.c); break
+      case 1: this.groups.tunnel.onEvent(ev.value, ev.f, ev.c); break
+      case 2: this.groups.left.onEvent(ev.value, ev.f, ev.c); break
+      case 3: this.groups.right.onEvent(ev.value, ev.f, ev.c); break
+      case 4: this.groups.floor.onEvent(ev.value, ev.f, ev.c); break
+      case 8: case 9: this.laserSpeed.left = Math.max(this.laserSpeed.left, 2); break
+      case 12: this.laserSpeed.left = ev.value; break
+      case 13: this.laserSpeed.right = ev.value; break
+    }
+  }
+
+  onBeat(i: number) {
+    super.onBeat(i)
+    if (this.hasLightEvents) return
+    const right = i % 4 < 2
+    this.groups.tunnel.onEvent(i % 8 === 0 ? (right ? 3 : 7) : (right ? 1 : 5), 0.9)
+    if (i % 2 === 0) this.groups.bg.onEvent(i % 8 === 0 ? 7 : 3, 0.9)
+    if (i % 4 === 2) this.groups.floor.onEvent(right ? 5 : 1, 0.85)
+    this.groups.left.onEvent(right ? 7 : 3, 0.95)
+    this.groups.right.onEvent(right ? 3 : 7, 0.95)
+    if (i % 8 === 4) { this.laserSpeed.left = 3; this.laserSpeed.right = 3 }
+  }
+
+  update(dt: number, t: number) {
+    super.update(dt, t)
+    for (const c of this.channels) c.update(dt)
+    // Rotating side lasers (viewer's stage-lasers: speed/8, slight desync)
+    for (const side of ['left', 'right'] as const) {
+      const sp = this.laserSpeed[side] / 8
+      const set = this.lasers[side]
+      if (set[0]) set[0].rotation.z += sp * dt
+      if (set[1]) set[1].rotation.z -= sp * dt * 1.01
+      if (set[2]) set[2].rotation.z += sp * dt * 1.02
+    }
+    if (this.smoke) this.smoke.rotation.y += dt * (Math.PI * 2 / 200)
+  }
+}
+
 export function createEnv(id: string, scene: THREE.Scene, colorL: number, colorR: number, envName?: string): BaseEnv {
   switch (id) {
     case 'neon': return new NeonEnv(scene, colorL, colorR)
@@ -1175,7 +1454,13 @@ export function createEnv(id: string, scene: THREE.Scene, colorL: number, colorR
     case 'space': return new SpaceEnv(scene, colorL, colorR)
     case 'miku': return new MikuEnv(scene, colorL, colorR)
     case 'ghost': return new GhostEnv(scene, colorL, colorR)
-    case 'official': return new OfficialEnv(scene, colorL, colorR, envName)
+    case 'official':
+      // Strict官方 runway (beatsaver-viewer port) for the default environment;
+      // named environment presets keep their approximated variants
+      if (!envName || envName === 'DefaultEnvironment' || envName === 'OriginsEnvironment' || envName === 'TheFirstEnvironment') {
+        return new ViewerStage(scene, colorL, colorR)
+      }
+      return new OfficialEnv(scene, colorL, colorR, envName)
     case 'shrine': return new ShrineEnv(scene, colorL, colorR)
   }
   return new BaseEnv(scene, colorL, colorR)
