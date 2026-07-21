@@ -34,16 +34,27 @@ export class HandTracker {
       await v.play()
       this.video = v
       const { FilesetResolver, HandLandmarker } = await import('@mediapipe/tasks-vision')
-      const files = await FilesetResolver.forVisionTasks('/mediapipe/wasm')
-      const opts = (delegate: 'GPU' | 'CPU') => ({
-        baseOptions: { modelAssetPath: '/mediapipe/hand_landmarker.task', delegate },
-        runningMode: 'VIDEO' as const,
-        numHands: 2,
-      })
-      try {
-        this.lm = await HandLandmarker.createFromOptions(files, opts('GPU'))
-      } catch (e) {
-        this.lm = await HandLandmarker.createFromOptions(files, opts('CPU'))
+      // Model + wasm live in the object-storage bucket (game server bandwidth
+      // is tiny); the same-origin copy is only a fallback if the bucket fails
+      const BUCKET = 'https://xi-cloud-disk.tos-cn-beijing.volces.com/beat_saber/mediapipe'
+      const bases = [BUCKET, '/mediapipe']
+      for (const base of bases) {
+        try {
+          const files = await FilesetResolver.forVisionTasks(base + '/wasm')
+          const opts = (delegate: 'GPU' | 'CPU') => ({
+            baseOptions: { modelAssetPath: base + '/hand_landmarker.task', delegate },
+            runningMode: 'VIDEO' as const,
+            numHands: 2,
+          })
+          try {
+            this.lm = await HandLandmarker.createFromOptions(files, opts('GPU'))
+          } catch (e) {
+            this.lm = await HandLandmarker.createFromOptions(files, opts('CPU'))
+          }
+          break
+        } catch (e) {
+          if (base === bases[bases.length - 1]) throw e
+        }
       }
       this.ready = true
       this.error = ''
