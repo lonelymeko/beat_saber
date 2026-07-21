@@ -243,6 +243,22 @@ export function useGame() {
       const s = 0.5 / (g.boundingBox.max.x - g.boundingBox.min.x)
       g.scale(s, s, s)
       g.center()
+      // beat.obj ships without UVs (authored for env-map-only shading) — box
+      // projection so themed texture skins (lantern) can render
+      const pos = g.getAttribute('position')
+      const norm = g.getAttribute('normal')
+      const uv = new Float32Array(pos.count * 2)
+      for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i)
+        const nx = Math.abs(norm.getX(i)), ny = Math.abs(norm.getY(i)), nz = Math.abs(norm.getZ(i))
+        let u: number, v: number
+        if (nz >= nx && nz >= ny) { u = x; v = y }
+        else if (nx >= ny) { u = z; v = y }
+        else { u = x; v = z }
+        uv[i * 2] = u * 2 + 0.5
+        uv[i * 2 + 1] = v * 2 + 0.5
+      }
+      g.setAttribute('uv', new THREE.BufferAttribute(uv, 2))
       noteGeo = g
       setGeometries({ noteGeo, arrowGeo, faceGlowGeo, bombGeo, halfGeo, hotGeo, hotTexGeo, bombMat, wallMat })
     }, undefined, () => { /* keep procedural fallback */ })
@@ -275,6 +291,37 @@ export function useGame() {
     textures.dotGeoOff = dotGeoOff
   }
 
+  // Shrine-theme lantern skin: ribbed paper-lantern texture (near-white base so
+  // the per-hand color tint keeps L/R readable), built once and cached
+  let _lanternTex: THREE.CanvasTexture | null = null
+  function lanternTex() {
+    if (_lanternTex) return _lanternTex
+    const c = document.createElement('canvas')
+    c.width = 256; c.height = 256
+    const g = c.getContext('2d')!
+    g.fillStyle = '#f3e2cf'
+    g.fillRect(0, 0, 256, 256)
+    // vertical ribs (curved shading bands like a paper lantern frame)
+    for (let i = 0; i <= 8; i++) {
+      const x = i * 32
+      const grd = g.createLinearGradient(x - 10, 0, x + 10, 0)
+      grd.addColorStop(0, 'rgba(120,60,30,0)')
+      grd.addColorStop(0.5, 'rgba(120,60,30,0.55)')
+      grd.addColorStop(1, 'rgba(120,60,30,0)')
+      g.fillStyle = grd
+      g.fillRect(x - 10, 0, 20, 256)
+    }
+    // top/bottom hoops (dark lacquer bands)
+    g.fillStyle = 'rgba(40,16,8,0.85)'
+    g.fillRect(0, 0, 256, 18)
+    g.fillRect(0, 238, 256, 18)
+    g.fillStyle = 'rgba(212,175,55,0.9)' // gold trim
+    g.fillRect(0, 18, 256, 5)
+    g.fillRect(0, 233, 256, 5)
+    _lanternTex = new THREE.CanvasTexture(c)
+    return _lanternTex
+  }
+
   let coloredMatCache = new Map()
   function initSongAssets(meta) {
     // Viewer recipe: shiny plastic (low roughness) + deep body color + faint self-glow
@@ -284,8 +331,17 @@ export function useGame() {
       envMap: envTex, envMapIntensity: 1.35,
       emissive: c, emissiveIntensity: 0.16,
     })
-    matL = metal(meta.colorL)
-    matR = metal(meta.colorR)
+    // Themed skin: shrine maps (Reply) get glowing paper-lantern blocks
+    const lantern = (c) => new THREE.MeshStandardMaterial({
+      map: lanternTex(),
+      color: new THREE.Color(c).lerp(new THREE.Color(0xffffff), 0.25),
+      metalness: 0.15, roughness: 0.55,
+      envMap: envTex, envMapIntensity: 0.5,
+      emissive: c, emissiveIntensity: 0.38,
+    })
+    const skin = meta.env === 'shrine' ? lantern : metal
+    matL = skin(meta.colorL)
+    matR = skin(meta.colorR)
     coloredMatCache.forEach(m => m.dispose())
     coloredMatCache = new Map()
 
