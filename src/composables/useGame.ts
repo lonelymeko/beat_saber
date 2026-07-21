@@ -7,7 +7,7 @@ import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeom
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
 import { Synth, MusicPlayer } from '../audio/Synth'
 import { SONGS } from '../audio/songs'
-import { searchBeatSaver, browseBeatSaver, downloadBeatMap, loadBuiltinMap } from '../audio/beatsaver'
+import { searchBeatSaver, browseBeatSaver, browseBeatLeader, downloadBeatMap, loadBuiltinMap } from '../audio/beatsaver'
 import { saveMap, loadAllMaps, deleteMap } from '../audio/storage'
 import { analyzeAudioBuffer } from '../audio/analyzer'
 import { initTextures, makeEnvMap } from '../game/Textures'
@@ -2232,13 +2232,19 @@ export function useGame() {
 
     section('排序 SORT', 122)
     g.font = 'bold 23px "Rajdhani", "PingFang SC", sans-serif'
-    chip(24, 142, 180, 52, '热门 TOP', 'sortR', _vrBrowseSort === 'Rating', () => {
+    chip(24, 142, 140, 52, '热门 TOP', 'sortR', _vrBrowseSort === 'Rating', () => {
       _vrBrowseSort = 'Rating'
       vrBrowserFetch('热门 TOP', () => browseBeatSaver('Rating'))
     })
-    chip(218, 142, 180, 52, '最新 LATEST', 'sortL', _vrBrowseSort === 'Latest', () => {
+    chip(176, 142, 140, 52, '最新 NEW', 'sortL', _vrBrowseSort === 'Latest', () => {
       _vrBrowseSort = 'Latest'
-      vrBrowserFetch('最新 LATEST', () => browseBeatSaver('Latest'))
+      vrBrowserFetch('最新 NEW', () => browseBeatSaver('Latest'))
+    })
+    chip(328, 142, 140, 52, '榜单热度', 'sortBL', false, () => {
+      vrBrowserFetch('BeatLeader · 榜单热度', () => browseBeatLeader('trending'))
+    })
+    chip(480, 142, 130, 52, '排位谱', 'sortBLR', false, () => {
+      vrBrowserFetch('BeatLeader · 排位谱', () => browseBeatLeader('ranked'))
     })
 
     section('分类 GENRE', 236)

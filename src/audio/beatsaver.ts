@@ -42,6 +42,40 @@ async function fetchMapList(url: string): Promise<BeatSaverMapInfo[]> {
   }))
 }
 
+// BeatLeader leaderboards (ranked/trending): song.id is the BeatSaver map id,
+// so results flow straight into the existing download pipeline
+export async function browseBeatLeader(sort: 'trending' | 'ranked' = 'trending', page = 0): Promise<BeatSaverMapInfo[]> {
+  const sortBy = sort === 'ranked' ? 'stars' : 'playcount'
+  const type = sort === 'ranked' ? 'ranked' : 'all'
+  // Same-origin nginx proxy (/blapi/ → api.beatleader.xyz): the BL API has no CORS
+  const url = `/blapi/leaderboards?page=${page + 1}&count=20&sortBy=${sortBy}&order=desc&type=${type}`
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`BeatLeader failed: ${res.status}`)
+  const data = await res.json()
+  const seen = new Set<string>()
+  const out: any[] = []
+  for (const it of data.data || []) {
+    const s = it.song || {}
+    if (!s.id || seen.has(s.id)) continue
+    seen.add(s.id)
+    out.push({
+      id: s.id,
+      name: s.name,
+      songName: s.name,
+      songAuthor: s.author,
+      levelAuthor: s.mapper,
+      bpm: s.bpm || 0,
+      duration: s.duration || 0,
+      hash: s.hash,
+      diffs: [],
+      coverUrl: s.coverImage,
+      downloadCount: 0,
+      upvotes: it.plays || it.playCount || 0,
+    })
+  }
+  return out
+}
+
 export async function downloadBeatMap(mapData, onProgress) {
   let { hash, id } = mapData
   let coverURL = mapData.coverUrl || null

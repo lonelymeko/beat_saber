@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted, provide } from 'vue'
 import { useGame } from './composables/useGame'
-import { browseBeatSaver } from './audio/beatsaver'
+import { browseBeatSaver, browseBeatLeader } from './audio/beatsaver'
 
 const game = useGame()
 provide('game', game)
@@ -124,9 +124,31 @@ async function browseCats(reset = true) {
   bsLoading.value = false
 }
 
-function browseMore() { bsPage.value++; browseCats(false) }
-function setSort(s: 'Rating' | 'Latest') { bsSort.value = s; browseCats(true) }
-function setTag(t: string) { bsTag.value = t; browseCats(true) }
+function browseMore() {
+  bsPage.value++
+  if (blMode.value) browseBL(blMode.value, false)
+  else browseCats(false)
+}
+function setSort(s: 'Rating' | 'Latest') { blMode.value = ''; bsSort.value = s; browseCats(true) }
+function setTag(t: string) { blMode.value = ''; bsTag.value = t; browseCats(true) }
+
+// BeatLeader leaderboard browsing (trending plays / ranked stars)
+const blMode = ref<'' | 'trending' | 'ranked'>('')
+async function browseBL(mode: 'trending' | 'ranked', reset = true) {
+  if (bsLoading.value) return
+  bsLoading.value = true
+  bsError.value = ''
+  if (reset) { bsPage.value = 0; bsResults.value = [] }
+  bsBrowseActive.value = true
+  blMode.value = mode
+  bsSearchLabel.value = mode === 'ranked' ? 'BeatLeader · 排位谱' : 'BeatLeader · 榜单热度'
+  try {
+    const list = await browseBeatLeader(mode, bsPage.value)
+    bsResults.value = reset ? list : bsResults.value.concat(list)
+    if (!bsResults.value.length) bsError.value = 'No results'
+  } catch (e: any) { bsError.value = 'BeatLeader failed: ' + e.message }
+  bsLoading.value = false
+}
 
 // ===== One-click Top10 batch download; each batch advances to the next 10 =====
 const topBusy = ref(false)
@@ -455,8 +477,10 @@ onUnmounted(() => {
         </button>
       </div>
       <div class="bs-browse-row">
-        <button class="bs-pill sort" :class="{ on: bsSort === 'Rating' }" @mouseenter="game.uiHover()" @click="game.uiClick(); setSort('Rating')">热门</button>
-        <button class="bs-pill sort" :class="{ on: bsSort === 'Latest' }" @mouseenter="game.uiHover()" @click="game.uiClick(); setSort('Latest')">最新</button>
+        <button class="bs-pill sort" :class="{ on: !blMode && bsSort === 'Rating' }" @mouseenter="game.uiHover()" @click="game.uiClick(); setSort('Rating')">热门</button>
+        <button class="bs-pill sort" :class="{ on: !blMode && bsSort === 'Latest' }" @mouseenter="game.uiHover()" @click="game.uiClick(); setSort('Latest')">最新</button>
+        <button class="bs-pill sort" :class="{ on: blMode === 'trending' }" @mouseenter="game.uiHover()" @click="game.uiClick(); browseBL('trending')">榜单热度</button>
+        <button class="bs-pill sort" :class="{ on: blMode === 'ranked' }" @mouseenter="game.uiHover()" @click="game.uiClick(); browseBL('ranked')">排位谱</button>
         <span class="bs-sep"></span>
         <button
           v-for="t in BS_TAGS" :key="'t-' + t[0]"
