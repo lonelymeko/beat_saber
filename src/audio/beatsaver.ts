@@ -500,6 +500,16 @@ function parseChart(chart: any, spb: number) {
           const a = pickNoodleProps(cd._animation, noodle?.pd || {})
           if (Object.keys(a).length) w.anim = a
         }
+        // Static per-wall rotation (wall-art strokes tilt with these; a bare
+        // number means yaw) → fold into constant keyframes for the noodle runtime
+        const srot = cd._rotation, slrot = cd._localRotation
+        if (srot != null || slrot != null) {
+          w.anim = w.anim || {}
+          if (srot != null && w.anim.rotation == null)
+            w.anim.rotation = [[...(Array.isArray(srot) ? srot : [0, srot, 0]), 0]]
+          if (slrot != null && w.anim.localRotation == null)
+            w.anim.localRotation = [[...(Array.isArray(slrot) ? slrot : [0, slrot, 0]), 0]]
+        }
         walls.push(w)
         continue
       }
