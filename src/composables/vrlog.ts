@@ -1,7 +1,11 @@
 const LOG = []
 let _started = false
+// Stringify + console.log per call is measurable on Quest (hot paths log every
+// frame) — no-op unless ?vrdebug is in the URL
+const DEBUG = typeof location !== 'undefined' && /vrdebug/.test(location.search)
 
 export function log(label, data) {
+  if (!DEBUG) return
   const entry = { t: performance.now() | 0, label, data: typeof data === 'string' ? data : JSON.stringify(data).slice(0, 200) }
   LOG.push(entry)
   if (LOG.length > 200) LOG.shift()

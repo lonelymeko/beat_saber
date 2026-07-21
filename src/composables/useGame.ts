@@ -399,8 +399,10 @@ export function useGame() {
   // Wall-art / observation maps use walls as "video pixels" — budget decorations
   // by graphics tier so high quality plays them at full fidelity (FPS tradeoff accepted).
   const WALL_BUDGET: Record<string, number> = { low: 3500, medium: 12000, high: Infinity }
+  // Quest fill-rate cannot survive six-figure transparent wall counts — tighter caps in VR
+  const WALL_BUDGET_XR: Record<string, number> = { low: 2000, medium: 6000, high: 20000 }
   function capDecoWalls(walls: any[], q: string): any[] {
-    const cap = WALL_BUDGET[q] ?? Infinity
+    const cap = (XR.active ? WALL_BUDGET_XR : WALL_BUDGET)[q] ?? Infinity
     if (!walls || !walls.length) return walls
     // Maps stored before the always-sort parser fix may carry unsorted walls —
     // the spawn loop needs time order, so sort here regardless of the cap
@@ -2343,6 +2345,11 @@ export function useGame() {
   }
 
   const _vrRaycaster = new THREE.Raycaster()
+  let _vrListDrawAt = 0
+  const _vrDir = new THREE.Vector3()
+  const _vrTmpA = new THREE.Vector3()
+  const _vrTmpB = new THREE.Vector3()
+  const _vrUp = new THREE.Vector3(0, 1, 0)
 
   function _updateVRPanelsUI(dt: number) {
     let hoverKey = ''
@@ -2352,7 +2359,7 @@ export function useGame() {
       const quat = _ctrlQuat[hand]
       const laser = hand === 'left' ? vrLaserLeft : vrLaserRight
       if (!laser) continue
-      const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(quat)
+      const dir = _vrDir.set(0, 0, -1).applyQuaternion(quat)
       _vrRaycaster.set(pos, dir)
       _vrRaycaster.far = 10
       const hits = _vrRaycaster.intersectObjects([vrListPanel, vrDetailPanel], false)
@@ -2376,13 +2383,16 @@ export function useGame() {
       laser.visible = true
       laser.position.copy(pos)
       laser.scale.y = dist
-      laser.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir)
+      laser.quaternion.setFromUnitVectors(_vrUp, dir)
     }
     if (hoverKey !== _vrHoverKey) {
+      // Only repaint the panel(s) whose hover state actually changed
+      const oldP = _vrHoverKey.split(':')[0]
+      const newP = hoverKey.split(':')[0]
+      if (oldP === 'list' || newP === 'list') _vrListDirty = true
+      if (oldP === 'detail' || newP === 'detail') _vrDetailDirty = true
       _vrHoverKey = hoverKey
       if (hoverKey && synth) synth.sfxHover()
-      _vrListDirty = true
-      _vrDetailDirty = true
     }
     _vrHoverRegion = hoverRegion
 
@@ -2423,7 +2433,12 @@ export function useGame() {
       }
     }
 
-    if (vrListPanel && _vrListDirty) _redrawVRListPanel()
+    // Canvas repaint + GPU texture upload is the cost here — cap at ~22fps
+    // (scrolling repaints every frame otherwise)
+    if (vrListPanel && _vrListDirty && performance.now() - _vrListDrawAt > 45) {
+      _vrListDrawAt = performance.now()
+      _redrawVRListPanel()
+    }
     if (vrDetailPanel && _vrDetailDirty) _drawVRDetail()
   }
 
@@ -2472,26 +2487,25 @@ export function useGame() {
       const laser = hand === 'left' ? vrLaserLeft : vrLaserRight
       if (!laser) continue
 
-      // Point laser forward from controller
-      const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(quat)
-      const start = pos.clone()
+      // Point laser forward from controller (reused temps — this runs per card
+      // per hand per frame; fresh allocations here caused GC hitches on Quest)
+      const dir = _vrDir.set(0, 0, -1).applyQuaternion(quat)
+      const start = pos
 
-      // Check intersection with menu cards
+      // Check intersection with menu cards (cards face +z, so the plane test
+      // only needs z components)
       let closestHit = -1
       let closestDist = Infinity
       for (let i = 0; i < vrMenuItems.length; i++) {
         const card = vrMenuItems[i]
-        const cardWorld = new THREE.Vector3()
-        card.getWorldPosition(cardWorld)
-        const cardNormal = new THREE.Vector3(0, 0, 1)
-        cardWorld.z -= 0.01
-
-        const denom = dir.dot(cardNormal)
+        _vrTmpA.setFromMatrixPosition(card.matrixWorld)
+        const planeZ = _vrTmpA.z - 0.01
+        const denom = dir.z
         if (Math.abs(denom) < 0.001) continue
-        const t = (cardWorld.dot(cardNormal) - start.dot(cardNormal)) / denom
+        const t = (planeZ - start.z) / denom
         if (t > 0 && t < 10) {
-          const pt = start.clone().addScaledVector(dir, t)
-          const local = card.parent.worldToLocal(pt.clone())
+          _vrTmpB.copy(start).addScaledVector(dir, t)
+          const local = card.parent.worldToLocal(_vrTmpB)
           const hw = card.userData.hw ?? 0.6, hh = card.userData.hh ?? 0.3
           if (Math.abs(local.x - card.position.x) < hw && Math.abs(local.y - card.position.y) < hh) {
             if (t < closestDist) { closestDist = t; closestHit = i }
@@ -2501,11 +2515,10 @@ export function useGame() {
 
       // Show laser and update
       laser.visible = true
-      const mid = start.clone().addScaledVector(dir, closestHit >= 0 ? closestDist : 3)
-      const center = start.clone().add(mid).multiplyScalar(0.5)
-      laser.position.copy(center)
-      laser.scale.y = closestHit >= 0 ? closestDist : 3
-      laser.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir)
+      const len = closestHit >= 0 ? closestDist : 3
+      laser.position.copy(start)
+      laser.scale.y = len
+      laser.quaternion.setFromUnitVectors(_vrUp, dir)
 
       if (closestHit >= 0) {
         vrMenuItems[closestHit].scale.setScalar(1.15)
@@ -2522,7 +2535,7 @@ export function useGame() {
     // Debug laser hit periodically
     if (!_vrLaserLogCount) _vrLaserLogCount = 0
     _vrLaserLogCount++
-    if (_vrLaserLogCount % 120 === 0 || hovered >= 0) {
+    if (_vrLaserLogCount % 120 === 0) {
       log('laser-debug', { hovered, posR: _ctrlPos['right'].toArray().map(v => v.toFixed(2)), dirR: new THREE.Vector3(0, 0, -1).applyQuaternion(_ctrlQuat['right']).toArray().map(v => v.toFixed(2)) })
     }
 
@@ -2798,6 +2811,10 @@ export function useGame() {
       startLog()
 
       if (animFrameId) { cancelAnimationFrame(animFrameId); animFrameId = null }
+      // Render-resolution scale per quality tier (must be set before setSession)
+      const fbScale = quality.value === 'low' ? 0.7 : quality.value === 'medium' ? 0.85 : 1.0
+      try { renderer.xr.setFramebufferScaleFactor(fbScale) } catch (e) { /* older three */ }
+      try { (renderer.xr as any).setFoveation?.(1) } catch (e) { /* not supported */ }
       renderer.xr.setSession(session)
       renderer.setAnimationLoop(tick)
       log('setAnimationLoop', 'done')
