@@ -50,7 +50,9 @@ export class HandTracker {
       this.ready = true
       this.error = ''
     } catch (e: any) {
-      this.error = e?.name === 'NotAllowedError' ? '摄像头权限被拒绝' : (e?.message || String(e))
+      this.error = e?.name === 'NotAllowedError'
+        ? '摄像头权限被拒绝'
+        : (typeof e?.message === 'string' && e.message) || '模型资源加载失败(存储配置未生效?)'
       this.stop()
       throw e
     }
