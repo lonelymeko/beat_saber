@@ -47,21 +47,12 @@ export function createNoteMesh(d, mats, textures) {
     const sprM = d.type === 0
       ? (isDot ? textures.dotMatR : textures.arrowMatR)
       : (isDot ? textures.dotMatB : textures.arrowMatB)
-    if (sprM && textures.arrowGeoOff) {
-      const face = new THREE.Mesh(isDot ? textures.dotGeoOff : textures.arrowGeoOff, sprM)
-      face.position.z = 0.258
-      face.rotation.z = rot
-      g.add(face)
-    } else {
-      const face = new THREE.Mesh(arrowGeo, isDot ? textures.dotMat : textures.arrowMat)
-      face.position.z = 0.258
-      face.rotation.z = rot
-      g.add(face)
-    }
-    const halo = new THREE.Mesh(faceGlowGeo, isDot ? textures.dotGlowMat : textures.arrowGlowMat)
-    halo.position.z = 0.254
-    halo.rotation.z = rot
-    g.add(halo)
+    // Official atlas sprite only (glow is baked into the sprite, no halo);
+    // sprite materials exist from init, so no fallback path is needed
+    const face = new THREE.Mesh(isDot ? textures.dotGeoOff : textures.arrowGeoOff, sprM)
+    face.position.z = 0.258
+    face.rotation.z = rot
+    g.add(face)
   }
   g.position.set(d.wx ?? LANE_X[d.x], d.wy ?? ROW_Y[d.y], -SPAWN_DIST)
   g.userData.spin = (Math.random() - 0.5) * 1.4
