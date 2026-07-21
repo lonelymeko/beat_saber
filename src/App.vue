@@ -197,6 +197,17 @@ async function handleFile(file) {
   uploadBusy.value = false
 }
 
+const handPreviewRef = ref<HTMLDivElement | null>(null)
+
+async function onToggleHand() {
+  await game.toggleHandMode()
+  const box = handPreviewRef.value
+  if (!box) return
+  box.innerHTML = ''
+  const v = game.getHandVideo()
+  if (game.handMode.value && v) box.appendChild(v)
+}
+
 onMounted(() => {
   if (canvasRef.value) {
     game.init(canvasRef.value)
@@ -226,6 +237,9 @@ onUnmounted(() => {
 
 <template>
   <canvas ref="canvasRef" />
+
+  <!-- Webcam preview for hand-tracking mode (mirrored) -->
+  <div id="hand-preview" ref="handPreviewRef" :class="{ show: game.handMode.value }"></div>
 
   <!-- Local song loading toast (official-style notification) -->
   <div v-if="game.localLoad.value.active" id="load-toast">
@@ -346,6 +360,15 @@ onUnmounted(() => {
         >
           <span class="sw"></span>
           NO FAIL · 血量清空不失败但扣 50% 分数
+        </div>
+        <div
+          id="auto-toggle"
+          :class="{ on: game.handMode.value }"
+          @click="game.uiClick(); onToggleHand()"
+          @mouseenter="game.uiHover()"
+        >
+          <span class="sw"></span>
+          体感模式 · 摄像头食指控剑{{ game.handStatus.value ? ' — ' + game.handStatus.value : '' }}
         </div>
         <div class="quality-line">
           <span class="q-label">画质 GRAPHICS</span>

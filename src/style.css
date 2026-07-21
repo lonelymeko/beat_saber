@@ -98,6 +98,32 @@ canvas {
   padding: 0;
 }
 
+/* Webcam preview for hand-tracking mode */
+#hand-preview {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  width: 180px;
+  height: 135px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(127, 220, 255, 0.35);
+  background: rgba(6, 8, 18, 0.8);
+  z-index: 90;
+  display: none;
+}
+
+#hand-preview.show {
+  display: block;
+}
+
+#hand-preview video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1); /* mirror so movement matches the player */
+}
+
 /* Top-right external links (GitHub / bilibili) */
 #ext-links {
   position: absolute;

@@ -24,6 +24,10 @@ export function useGame() {
   // ========== State ==========
   const state = ref('menu')
   const auto = ref(false)
+  // Webcam hand-tracking mode (desktop): index fingertips drive the sabers
+  const handMode = ref(false)
+  const handStatus = ref('')
+  let handTracker: import('../game/handTrack').HandTracker | null = null
   const invincible = ref(false)
   const invincibleUsed = ref(false)
   const songIdx = ref(0)
@@ -928,6 +932,27 @@ export function useGame() {
     if ((e.code === 'KeyD' || e.code === 'ArrowRight') && G.leanTarget > 0) G.leanTarget = 0
   }
 
+  async function toggleHandMode() {
+    if (handMode.value) {
+      handMode.value = false
+      handStatus.value = ''
+      handTracker?.stop()
+      handTracker = null
+      return
+    }
+    handStatus.value = '摄像头启动中…'
+    try {
+      const { HandTracker } = await import('../game/handTrack')
+      handTracker = new HandTracker()
+      await handTracker.start()
+      handMode.value = true
+      handStatus.value = '已就绪 · 举起双手食指'
+    } catch (e: any) {
+      handStatus.value = handTracker?.error || '摄像头启动失败'
+      handTracker = null
+    }
+  }
+
   function toggleAuto() {
     auto.value = !auto.value
     if (synth) synth.sfxClick()
@@ -1380,9 +1405,26 @@ export function useGame() {
           })
         }
       } else {
-        const mp = mouseToWorld()
-        saberR.update(dt, mp.x, mp.y)
-        saberL.update(dt, -mp.x, mp.y)
+        let byHand = false
+        if (handMode.value && handTracker?.ready) {
+          const now = performance.now()
+          handTracker.update(now)
+          const H = handTracker.hands
+          if (now - H.left.seen < 600 || now - H.right.seen < 600) {
+            // Full camera frame maps to the playfield (slight gain so small
+            // hand motion covers the outer lanes)
+            const HX = (n: number) => THREE.MathUtils.clamp((n - 0.5) * 6.5, -2.6, 2.6)
+            const HY = (n: number) => THREE.MathUtils.clamp((1 - n) * 3.4 + 0.05, 0.15, 2.9)
+            saberL.update(dt, HX(H.left.x), HY(H.left.y))
+            saberR.update(dt, HX(H.right.x), HY(H.right.y))
+            byHand = true
+          }
+        }
+        if (!byHand) {
+          const mp = mouseToWorld()
+          saberR.update(dt, mp.x, mp.y)
+          saberL.update(dt, -mp.x, mp.y)
+        }
       }
 
       if (t > -0.5) checkCuts()
@@ -2920,6 +2962,8 @@ export function useGame() {
 
   function dispose() {
     if (animFrameId) cancelAnimationFrame(animFrameId)
+    handTracker?.stop()
+    handTracker = null
     if (player) player.stop()
     clearPlayfield()
     if (env) env.dispose()
@@ -2936,6 +2980,8 @@ export function useGame() {
     SONGS,
     init, startSong, pauseSong, resumeSong, quitToMenu, failSong,
     onMouseMove, onKeyDown, onKeyUp, toggleAuto, toggleInvincible,
+    handMode, handStatus, toggleHandMode,
+    getHandVideo: () => handTracker?.video || null,
     handleMusicFile, searchSong, downloadSong, deleteDownloadedSong, enterVR, dumpLog, dispose,
     uiClick, uiHover, previewSong, quality, setQuality, setSongDifficulty,
     // Debug: render the VR panels in desktop mode for screenshot verification
