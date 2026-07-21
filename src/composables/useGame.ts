@@ -401,8 +401,27 @@ export function useGame() {
   const WALL_BUDGET: Record<string, number> = { low: 3500, medium: 12000, high: Infinity }
   // Quest fill-rate cannot survive six-figure transparent wall counts — tighter caps in VR
   const WALL_BUDGET_XR: Record<string, number> = { low: 2000, medium: 6000, high: 20000 }
+  // User opt-in: full wall data in VR (原画, may stutter) / VR frame limiter (0 = uncapped)
+  let vrFullWalls = localStorage.getItem('bs_vr_fullwalls') === '1'
+  let vrFpsLimit = parseInt(localStorage.getItem('bs_vr_fps') || '0') || 0
+  let _lastXRRender = 0
+
+  function applyVRFrameRate() {
+    const s: any = XR.session
+    if (!s || !s.supportedFrameRates || !s.updateTargetFrameRate) return
+    const want = vrFpsLimit || Infinity
+    let best: number | null = null
+    for (const r of s.supportedFrameRates) {
+      if (r <= want + 1) { if (best == null || r > best) best = r }
+    }
+    if (best == null) best = Math.min(...s.supportedFrameRates)
+    s.updateTargetFrameRate(best).catch(() => {})
+  }
+
   function capDecoWalls(walls: any[], q: string): any[] {
-    const cap = (XR.active ? WALL_BUDGET_XR : WALL_BUDGET)[q] ?? Infinity
+    const cap = XR.active
+      ? (vrFullWalls ? Infinity : (WALL_BUDGET_XR[q] ?? Infinity))
+      : (WALL_BUDGET[q] ?? Infinity)
     if (!walls || !walls.length) return walls
     // Maps stored before the always-sort parser fix may carry unsorted walls —
     // the spawn loop needs time order, so sort here regardless of the cap
@@ -1127,6 +1146,12 @@ export function useGame() {
 
   function tick(timestamp, xrFrame) {
     try {
+    // VR frame limiter: skip whole ticks; the compositor reprojects the last
+    // frame, so 30/60 work even when the device only offers 72/90Hz
+    if (XR.active && vrFpsLimit > 0 && timestamp) {
+      if (timestamp - _lastXRRender < 1000 / vrFpsLimit - 3) return
+      _lastXRRender = timestamp
+    }
     const dt = Math.min(clock.getDelta(), 0.05)
     const time = performance.now() * 0.001
 
@@ -2078,8 +2103,55 @@ export function useGame() {
     }
     g.textAlign = 'left'
 
+    // VR frame limiter + full-wall (原画) toggle
+    g.fillStyle = '#7d88ad'
+    g.font = '20px "Rajdhani", "PingFang SC", sans-serif'
+    g.fillText('帧率', 28, 284)
+    let fx = 90
+    for (const [fv, fl] of [[30, '30'], [60, '60'], [90, '90'], [0, '无限']] as [number, string][]) {
+      const cur = vrFpsLimit === fv
+      const hovered = _vrHoverKey === 'detail:fps' + fv
+      const pw = fv === 0 ? 78 : 62
+      _rr(g, fx, 262, pw, 44, 22)
+      g.fillStyle = cur ? '#7fdcff' : (hovered ? 'rgba(127,220,255,0.3)' : 'rgba(127,220,255,0.12)')
+      g.fill()
+      g.fillStyle = cur ? '#0a0e1e' : '#cfe8ff'
+      g.font = 'bold 22px "Rajdhani", "PingFang SC", sans-serif'
+      g.textAlign = 'center'
+      g.fillText(fl, fx + pw / 2, 285)
+      regions.push({ x: fx, y: 262, w: pw, h: 44, key: 'fps' + fv, act: () => {
+        vrFpsLimit = fv
+        localStorage.setItem('bs_vr_fps', String(fv))
+        applyVRFrameRate()
+        _vrDetailDirty = true
+      } })
+      fx += pw + 10
+    }
+    {
+      const pw = 160
+      const hovered = _vrHoverKey === 'detail:fullwalls'
+      _rr(g, W - pw - 28, 262, pw, 44, 22)
+      g.fillStyle = vrFullWalls ? '#ffb45e' : (hovered ? 'rgba(255,180,94,0.35)' : 'rgba(255,180,94,0.14)')
+      g.fill()
+      g.fillStyle = vrFullWalls ? '#241100' : '#ffcf9e'
+      g.font = 'bold 21px "Rajdhani", "PingFang SC", sans-serif'
+      g.textAlign = 'center'
+      g.fillText(vrFullWalls ? '原画墙 ⚠开' : '原画墙 关', W - pw / 2 - 28, 285)
+      regions.push({ x: W - pw - 28, y: 262, w: pw, h: 44, key: 'fullwalls', act: () => {
+        vrFullWalls = !vrFullWalls
+        localStorage.setItem('bs_vr_fullwalls', vrFullWalls ? '1' : '0')
+        _vrDetailDirty = true
+      } })
+      if (vrFullWalls) {
+        g.fillStyle = '#ffb45e'
+        g.font = '16px "Rajdhani", "PingFang SC", sans-serif'
+        g.fillText('可能卡顿·下局生效', W - pw / 2 - 28, 318)
+      }
+    }
+    g.textAlign = 'left'
+
     // Difficulty pills (same behavior as the desktop pills)
-    let py = 272
+    let py = 332
     if (s.diffList && s.diffList.length > 1) {
       g.font = 'bold 22px "Rajdhani", "PingFang SC", sans-serif'
       let px = 28
@@ -2817,6 +2889,7 @@ export function useGame() {
       try { (renderer.xr as any).setFoveation?.(1) } catch (e) { /* not supported */ }
       renderer.xr.setSession(session)
       renderer.setAnimationLoop(tick)
+      applyVRFrameRate()
       log('setAnimationLoop', 'done')
 
       if (!vrHUD) {
