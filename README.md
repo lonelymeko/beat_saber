@@ -1,78 +1,96 @@
 # Beat Saber WebXR
 
-网页版节奏光剑，支持桌面鼠标 + VR 手柄双模式，接入 BeatSaver 社区 12 万+ 谱面。
+网页版节奏光剑。桌面鼠标、摄像头体感、WebXR VR 三种玩法,深度兼容 BeatSaver 社区 20 万+ 谱面(Chroma / Noodle Extensions / 观赏谱 / modchart),舞台与方块按官方观感还原。
 
-## 体验地址
+**在线体验:https://beatsaber.xixiu.top**(VR 需 HTTPS,已配好)
 
-**https://beatsaber.xixiu.top**
+## 截图
 
-## 桌面模式
+| 主页(官方舞台背景 + 霓虹灯牌) | 官方舞台 · 灯光事件驱动 |
+|---|---|
+| ![menu](docs/screenshots/menu.png) | ![stage](docs/screenshots/stage.png) |
 
-### 操作
+| 观赏谱 Bad Apple(12.4 万面墙全量渲染) | modchart 镜头飞行(Nothing Else) |
+|---|---|
+| ![badapple](docs/screenshots/badapple.png) | ![modchart](docs/screenshots/modchart.png) |
+
+| 神社主题(Reply · 鸟居/灯笼海/灯笼方块) |
+|---|
+| ![shrine](docs/screenshots/shrine.png) |
+
+> VR 实机截图待补充。
+
+## 特性总览
+
+### 三种玩法
+- **桌面**:鼠标双剑(右手跟随、左手镜像),A/D 侧倾躲墙,ESC 暂停
+- **摄像头体感**:MediaPipe 手部追踪,左右手食指各控一把剑(模型/wasm 自托管 + 对象存储分发,浏览器本地推理,600ms 无手自动回落鼠标)
+- **WebXR VR**:双手柄 6DoF 光剑、按官方分级的手柄震动(正切/错切/炸弹)、桌面同款双面板选歌界面(摇杆滚动 + 激光逐像素点选)、VR 内搜索/下载/QWERTY 键盘、画质/帧率(30/60/90/无限)/原画墙就地设置
+
+### 谱面兼容
+- **格式**:v2 / v3 谱面,多难度解析与切换(Info.dat 权威映射),滑条(arcs)、链条(chains)、炸弹、墙体
+- **Chroma**:逐事件/逐物件自定义颜色、SongCore customColors、官方 Info.dat v2.1 colorSchemes(方块与灯光分别取色)
+- **Noodle Extensions**(深度子集):pointDefinitions 关键帧库、AnimateTrack、AssignPathAnimation、逐物件 `_animation`、18 种缓动、`_dissolve` 溶解、`_interactable` 幽灵音符、`_definitePosition` 绝对路径、精确坐标音符/墙体、静态 `_rotation`/`_localRotation` 旋转墙、**AssignTrackParent 轨道父子链**、**AssignPlayerToTrack 镜头飞行**(桌面端,光剑视觉随镜头)
+- **观赏谱(wall-art)**:墙体全量渲染按画质分档(桌面高画质不限量;VR 低 2000/中 6000/高 2 万 + "原画墙"开关解除限制),共享几何体优化高频刷墙
+
+### 官方观感还原(参考 [beatsaver-viewer](https://github.com/supermedium/beatsaver-viewer),MIT)
+- **舞台 1:1 移植**:官方跑道双模型 + atlas 遮罩着色器(UV 分区染色/假径向雾)、3+3 旋转侧激光、烟雾环、法线贴图反光地板;灯光事件全通道对位(背景辉光/隧道霓虹/左右激光/地板/激光转速),on/flash/fade 三态动画,无灯光数据的谱有节拍兜底灯光秀
+- **方块**:官方 beat.obj 倒角模型 + atlas 箭头/圆点精灵 + 录音棚环境反射,官方材质配方;**切割方向 = 整块旋转**(斜向呈菱形姿态);切割为官方式两半分离 + 白热切面
+- **音效**:游戏提取的打击音效组(随机变体)+ UI 悬停/点击音
+- **环境**:11 种 `_environmentName` 舞台变体;神社主题环境(Reply:鸟居、海上灯笼、灯笼皮肤方块)
+
+### 内容获取
+- **BeatSaver**:关键词搜索(相关性排序)、4-6 位 ID 直接下载、11 个分类标签 × 热门/最新浏览、一键下载 TOP10(自动翻批)
+- **BeatLeader**:榜单热度(按真实游玩次数)、排位谱(按星级),经同源反代接入
+- **本地导入**:拖入音频文件自动分析生成谱面
+- 谱面持久化到浏览器 IndexedDB(含封面、全部难度),刷新不丢;下载有分段进度(解析/下载 %/入库)
+
+### 性能
+- 画质三档:高(全分辨率 bloom)/ 中(半分辨率 bloom)/ 低(关闭后处理)
+- **像素预算自适应**:按窗口面积 × dpr 钳制总渲染像素(大屏 Retina 自动降 pixelRatio,小窗保持 2× 锐利)
+- VR:帧缓冲随画质缩放 + 最大注视点渲染 + 原生/软双层帧率限制
+- 自动演示(DEMO)带拟人挥剑编排(蓄力-挥砍-收剑),保证全切;NO FAIL 模式血量清空不失败(扣 50% 总分)
+
+## 操作速查
+
+### 桌面
 | 操作 | 方式 |
 |------|------|
-| 挥砍光剑 | 鼠标移动控制双手 |
-| 躲避墙壁 | 键盘 **A / D** |
-| 暂停 | 键盘 **ESC** |
+| 挥砍光剑 | 鼠标移动(右手实、左手镜像) |
+| 躲避墙壁 | A / D |
+| 暂停 | ESC |
+| 体感模式 | 菜单开关"体感模式",举起双手食指 |
 
-### 选歌 / 下载
-- 点击歌单卡片直接开始内置歌曲
-- 点击 **BEATSAVER · 社区谱面搜索** 打开面板：
-  - **搜索框** — 输入歌手/歌名，Enter 搜索，从结果列表点击下载
-  - **🎤 歌手** — 一键搜热门动画/术力口歌手的热门谱面
-  - **🎵 热门曲目** — 一键搜具体歌曲
-- 下载后谱面自动存入浏览器本地存储，刷新不丢失
-- 下载成功的卡片右上角 **×** 可删除
-
-### 模式开关
-- **DEMO MODE** — 光剑自动演示，只听歌看景
-- **NO FAIL** — 血量清空不失败，扣 50% 总分（仅一次），之后血条隐藏
-
-## VR 模式
-
-需要 HTTPS 或 localhost 访问。
-
-### 进入 VR
-点击菜单底部 **ENTER VR** 按钮进入沉浸模式。
-
-### VR 选歌
-- 左右手光剑 + 激光射线
-- 右手激光指到卡片会自动放大，**按扳机键** 选择
-- 搜歌面板操作同桌面模式
-
-### VR 游戏中
+### VR
 | 操作 | 按钮 |
 |------|------|
-| 暂停 | 左手 **菜单键** |
-| 暂停-继续 | 左手扳机 |
-| 暂停-重开 | 右手扳机 |
-| 暂停-返回菜单 | 暂停后再按左手菜单键 |
-| 结束/失败-重试 | 左手扳机 |
-| 结束/失败-回菜单 | 右手扳机 |
-| 退出 VR | 右手柄 Oculus 系统按钮 |
-
-### 结算界面
-歌曲结束或失败后显示结算面板（评分、分数、准确率、连击），左右手扳机选择重试或返回菜单。
+| 选歌/面板 | 激光指向 + 扳机;摇杆上下滚动列表 |
+| 暂停 | 左手菜单键 |
+| 暂停-继续 / 重开 | 左手扳机 / 右手扳机 |
+| 结算-重试 / 回菜单 | 左手扳机 / 右手扳机 |
 
 ## 内置歌曲
 
-| 歌曲 | BPM | 难度 | 风格 |
-|------|-----|------|------|
-| 霓虹脉冲 NEON PULSE | 128 | 困难 | EDM |
-| 墨影山河 INK SHADOWS | 84 | 简单 | 国风古筝 |
-| 星海远航 STARBOUND | 110 | 普通 | Synthwave |
-
-## 技术栈
-
-- **Three.js** — 3D 渲染 + WebXR
-- **Vue 3** — UI 层
-- **Web Audio API** — 音频合成与回放
-- **IndexedDB** — 谱面本地持久化
-- **BeatSaver API** — 社区谱面搜索与下载
+| 歌曲 | BPM | 风格 |
+|------|-----|------|
+| 霓虹脉冲 NEON PULSE | 128 | EDM |
+| 墨影山河 INK SHADOWS | 84 | 国风古筝 |
+| 星海远航 STARBOUND | 110 | Synthwave |
+| Reply(内置社区谱) | 170 | 神社主题 · Expert+ |
 
 ## 本地开发
 
 ```bash
 npm install
-npm run dev        # 启动开发服务器 (localhost:5173, HTTPS)
+npm run dev      # 开发服务器(HTTPS)
+npm run build    # 产物在 dist/
 ```
+
+技术栈:Vue 3 + TypeScript + Three.js(WebXR)+ Web Audio + IndexedDB + MediaPipe Tasks Vision。
+
+## 致谢与声明
+
+- 舞台模型/着色器/方块模型/箭头精灵移植自 [supermedium/beatsaver-viewer](https://github.com/supermedium/beatsaver-viewer)(MIT)
+- 手部追踪:[MediaPipe](https://github.com/google-ai-edge/mediapipe) HandLandmarker
+- 谱面数据:[BeatSaver](https://beatsaver.com) / [BeatLeader](https://beatleader.xyz) 公开 API
+- 本项目为非商业粉丝作品,与 Beat Games / Meta 无关;"Beat Saber" 商标归其所有者
