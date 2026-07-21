@@ -42,11 +42,23 @@ export function createNoteMesh(d, mats, textures) {
   } else {
     g.add(new THREE.Mesh(noteGeo, bodyMatFor(d)))
     const rot = DIR_ROT[d.dir]
-    const face = new THREE.Mesh(arrowGeo, d.dir === 8 ? textures.dotMat : textures.arrowMat)
-    face.position.z = 0.258
-    face.rotation.z = rot
-    g.add(face)
-    const halo = new THREE.Mesh(faceGlowGeo, d.dir === 8 ? textures.dotGlowMat : textures.arrowGlowMat)
+    const isDot = d.dir === 8
+    // Official atlas sprite for the face glyph when loaded (per saber color)
+    const sprM = d.type === 0
+      ? (isDot ? textures.dotMatR : textures.arrowMatR)
+      : (isDot ? textures.dotMatB : textures.arrowMatB)
+    if (sprM && textures.arrowGeoOff) {
+      const face = new THREE.Mesh(isDot ? textures.dotGeoOff : textures.arrowGeoOff, sprM)
+      face.position.z = 0.258
+      face.rotation.z = rot
+      g.add(face)
+    } else {
+      const face = new THREE.Mesh(arrowGeo, isDot ? textures.dotMat : textures.arrowMat)
+      face.position.z = 0.258
+      face.rotation.z = rot
+      g.add(face)
+    }
+    const halo = new THREE.Mesh(faceGlowGeo, isDot ? textures.dotGlowMat : textures.arrowGlowMat)
     halo.position.z = 0.254
     halo.rotation.z = rot
     g.add(halo)

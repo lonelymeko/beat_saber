@@ -172,9 +172,9 @@ export class Saber {
     }
   }
 
-  update(dt, tx, ty) {
+  update(dt, tx, ty, kv = 28) {
     this.prev.copy(this.pos)
-    const k = 1 - Math.exp(-dt * 28)
+    const k = 1 - Math.exp(-dt * kv)
     this.pos.x += (tx - this.pos.x) * k
     this.pos.y += (ty - this.pos.y) * k
     this.vel.set((this.pos.x - this.prev.x) / dt, (this.pos.y - this.prev.y) / dt, 0)

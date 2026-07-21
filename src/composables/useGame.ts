@@ -4,6 +4,7 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
+import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
 import { Synth, MusicPlayer } from '../audio/Synth'
 import { SONGS } from '../audio/songs'
 import { searchBeatSaver, browseBeatSaver, downloadBeatMap, loadBuiltinMap } from '../audio/beatsaver'
@@ -74,7 +75,7 @@ export function useGame() {
     startAt: 0, t: -10, lastBeat: -1, lastCount: 99,
     noteIdx: 0, wallIdx: 0, lightIdx: 0, arcIdx: 0,
     notes: [], walls: [], halves: [], bursts: [], texts: [], arcs: [],
-    com: 0, jud: 0, hits: 0,
+    com: 0, jud: 0, hits: 0, maxCombo: 0,
     level: 0, prog: 0, en: 0.5,
     cumMax: [], totalNotes: 0,
     lean: 0, leanTarget: 0, shake: 0,
@@ -137,6 +138,7 @@ export function useGame() {
       noteGeo, arrowGeo, faceGlowGeo, bombGeo, halfGeo, hotGeo, hotTexGeo,
       bombMat, wallMat,
     })
+    loadOfficialAssets()
 
     clock = new THREE.Clock()
 
@@ -217,13 +219,65 @@ export function useGame() {
     }
   }
 
+  // Official-style assets ported from supermedium/beatsaver-viewer (MIT):
+  // beveled beat block + mine models, atlas arrow/dot sprites, studio envmap.
+  // Loaded async; until ready the procedural geometry/canvas sprites render.
+  function loadOfficialAssets() {
+    const objLoader = new OBJLoader()
+    const texLoader = new THREE.TextureLoader()
+    texLoader.load('/models/envmap.jpg', (t) => {
+      t.mapping = THREE.EquirectangularReflectionMapping
+      envTex = t
+      if (bombMat) { bombMat.envMap = t; bombMat.needsUpdate = true }
+    })
+    objLoader.load('/models/beat.obj', (obj) => {
+      const mesh: any = obj.children.find((c: any) => c.isMesh)
+      if (!mesh) return
+      const g = mesh.geometry
+      g.computeBoundingBox()
+      const s = 0.5 / (g.boundingBox.max.x - g.boundingBox.min.x)
+      g.scale(s, s, s)
+      g.center()
+      noteGeo = g
+      setGeometries({ noteGeo, arrowGeo, faceGlowGeo, bombGeo, halfGeo, hotGeo, hotTexGeo, bombMat, wallMat })
+    }, undefined, () => { /* keep procedural fallback */ })
+    objLoader.load('/models/mine.obj', (obj) => {
+      const mesh: any = obj.children.find((c: any) => c.isMesh)
+      if (!mesh) return
+      const g = mesh.geometry
+      g.computeBoundingBox()
+      const s = 0.46 / (g.boundingBox.max.x - g.boundingBox.min.x)
+      g.scale(s, s, s)
+      g.center()
+      bombGeo = g
+      setGeometries({ noteGeo, arrowGeo, faceGlowGeo, bombGeo, halfGeo, hotGeo, hotTexGeo, bombMat, wallMat })
+    }, undefined, () => { /* keep procedural fallback */ })
+    // Atlas sprites (front-face glyphs); quad sizes/offsets follow the viewer's
+    // arrow/dot OBJ coordinates scaled from its 0.29 block to our 0.5 block
+    const S = 0.5 / 0.29
+    const arrowGeoOff = new THREE.PlaneGeometry(0.2824 * S, 0.1353 * S)
+    arrowGeoOff.translate(0, 0.0755 * S, 0)
+    const dotGeoOff = new THREE.PlaneGeometry(0.2286 * S, 0.1795 * S)
+    const spriteMat = (url: string) => new THREE.MeshBasicMaterial({
+      map: texLoader.load(url), transparent: true,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    })
+    textures.arrowMatR = spriteMat('/models/arrow_red.png')
+    textures.arrowMatB = spriteMat('/models/arrow_blue.png')
+    textures.dotMatR = spriteMat('/models/dot_red.png')
+    textures.dotMatB = spriteMat('/models/dot_blue.png')
+    textures.arrowGeoOff = arrowGeoOff
+    textures.dotGeoOff = dotGeoOff
+  }
+
   let coloredMatCache = new Map()
   function initSongAssets(meta) {
-    const dim = (c) => new THREE.Color(c).multiplyScalar(0.55)
+    // Viewer recipe: shiny plastic (low roughness) + deep body color + faint self-glow
+    const dim = (c) => new THREE.Color(c).multiplyScalar(0.5)
     const metal = (c) => new THREE.MeshStandardMaterial({
-      color: dim(c), metalness: 0.88, roughness: 0.42,
+      color: dim(c), metalness: 0.82, roughness: 0.18,
       envMap: envTex, envMapIntensity: 1.35,
-      emissive: c, emissiveIntensity: 0.3,
+      emissive: c, emissiveIntensity: 0.16,
     })
     matL = metal(meta.colorL)
     matR = metal(meta.colorR)
@@ -238,9 +292,9 @@ export function useGame() {
     let m = coloredMatCache.get(hex)
     if (!m) {
       m = new THREE.MeshStandardMaterial({
-        color: new THREE.Color(hex).multiplyScalar(0.55), metalness: 0.88, roughness: 0.42,
+        color: new THREE.Color(hex).multiplyScalar(0.5), metalness: 0.82, roughness: 0.18,
         envMap: envTex, envMapIntensity: 1.35,
-        emissive: hex, emissiveIntensity: 0.3,
+        emissive: hex, emissiveIntensity: 0.16,
       })
       coloredMatCache.set(hex, m)
     }
@@ -684,7 +738,8 @@ export function useGame() {
           // Chain link: touch with the matching-color saber, no direction gate
           if (d > radius || saber.speed < minSpeed * 0.5) continue
           if ((saber.hand === 'L') === (note.d.type === 0)) goodLink(note, saber)
-          else badLink(note)
+          // Demo swings sweep wide — a wrong-color graze must not destroy the link
+          else if (!auto.value) badLink(note)
           continue
         }
         if (d > radius || saber.speed < minSpeed) continue
@@ -697,7 +752,9 @@ export function useGame() {
           dirOK = dot > 0.42
         }
         if (typeOK && dirOK) goodCut(note, saber, d * (CUT_RADIUS / radius))
-        else badCut(note, saber)
+        // Auto is a showcase: bad contacts (wrong color / wrong direction from a
+        // wide follow-through) are ignored so the correct cut can still land
+        else if (!auto.value) badCut(note, saber)
       }
     }
   }
@@ -705,23 +762,50 @@ export function useGame() {
   // ========== Auto aim ==========
   function autoAim(saber, t) {
     const type = saber.hand === 'L' ? 0 : 1
+    // Earliest still-hittable note of this color. Skipping long-past notes is
+    // load-bearing: chasing an already-missed note cascades into more misses.
     let target = null
     for (const n of G.notes) {
-      if (n.cut || n.missed || n.d.type !== type) continue
+      if (n.cut || n.missed || n.d.type !== type || n.d.ghost) continue
+      if (n.d.t < t - 0.12) continue
       if (!target || n.d.t < target.d.t) target = n
     }
-    if (!target || target.d.t - t > 1.6) {
+    if (!target || target.d.t - t > 1.4) {
+      // Idle: relaxed bobbing at the side
       const ix = saber.hand === 'L' ? -0.55 : 0.55
       const ph = type ? 1.7 : 0
-      return { x: ix + Math.sin(t * 1.3 + ph) * 0.14, y: 1.15 + Math.sin(t * 1.8 + ph) * 0.09 }
+      return { x: ix + Math.sin(t * 1.3 + ph) * 0.14, y: 1.15 + Math.sin(t * 1.8 + ph) * 0.09, k: 14 }
     }
-    const d = target.d
-    const nx = d.wx ?? LANE_X[d.x], ny = d.wy ?? ROW_Y[d.y]
-    const dv = DIR_VEC[d.dir === 8 ? 1 : d.dir]
-    if (d.t - t > 0.05) {
-      return { x: nx - dv[0] * 0.55, y: ny - dv[1] * 0.55 }
+    // Same-beat partner (doubles): one swing must pass through both
+    let partner = null
+    for (const n of G.notes) {
+      if (n === target || n.cut || n.missed || n.d.type !== type || n.d.ghost || n.d.link) continue
+      if (Math.abs(n.d.t - target.d.t) < 0.09) { partner = n; break }
     }
-    return { x: nx + dv[0] * 0.85, y: ny + dv[1] * 0.85 }
+    // Live mesh position (accounts for noodle animation), not the static lane
+    const ax = target.g.position.x, ay = target.g.position.y
+    const dv = DIR_VEC[target.d.dir === 8 ? 1 : target.d.dir]
+    const mirror = saber.hand === 'L' ? 1 : -1
+    const px = -dv[1] * mirror, py = dv[0] * mirror // perpendicular: curved raise, like a wrist arc
+    const left = target.d.t - t
+    if (left > 0.07) {
+      // Windup: hover behind the entry point, pulling further back as the hit
+      // approaches (anticipation), along a slight arc instead of a straight line
+      const pull = Math.max(0, Math.min(1, (0.45 - left) / 0.38))
+      return {
+        x: ax - dv[0] * (0.5 + 0.3 * pull) + px * 0.32 * (1 - pull),
+        y: ay - dv[1] * (0.5 + 0.3 * pull) + py * 0.32 * (1 - pull),
+        k: 20,
+      }
+    }
+    // Swing: snap through the note with follow-through; extend through the
+    // double partner so the blade segment covers both
+    let ex = ax + dv[0] * 1.0, ey = ay + dv[1] * 1.0
+    if (partner) {
+      ex = partner.g.position.x + dv[0] * 0.9
+      ey = partner.g.position.y + dv[1] * 0.9
+    }
+    return { x: ex, y: ey, k: 55 }
   }
 
   // ========== Flow ==========
@@ -781,6 +865,7 @@ export function useGame() {
 
     G.score = 0
     G.com = 0
+    G.maxCombo = 0
     G.jud = 0
     G.hits = 0
     G.level = 0
@@ -1318,6 +1403,22 @@ export function useGame() {
       // Noodle track animations advance before objects read them
       processNoodle(t)
 
+      // Demo mode is a showcase — official autoplay never misses. The swing
+      // choreography does the visuals; this guarantees the cut lands at any
+      // frame rate. Runs BEFORE the move loop so a low-fps frame jump cannot
+      // flag the note as missed first.
+      if (auto.value && saberL && saberR) {
+        for (const n of G.notes) {
+          if (n.cut || n.missed || n.d.ghost || n.d.type === 3) continue
+          const past = t - n.d.t
+          if (past < 0 || past > 0.45) continue
+          const saber = n.d.type === 0 ? saberL : saberR
+          if (n.d.link) { goodLink(n, saber); continue }
+          const d = distToSeg(n.g.position.x, n.g.position.y, saber.prev.x, saber.prev.y, saber.pos.x, saber.pos.y)
+          if (d < 4.5) goodCut(n, saber, Math.min(d, 0.08))
+        }
+      }
+
       // Move notes
       for (let i = G.notes.length - 1; i >= 0; i--) {
         const n = G.notes[i]
@@ -1385,8 +1486,8 @@ export function useGame() {
       // Sabers
       if (auto.value) {
         const ta = autoAim(saberL, t), tb = autoAim(saberR, t)
-        saberL.update(dt, ta.x, ta.y)
-        saberR.update(dt, tb.x, tb.y)
+        saberL.update(dt, ta.x, ta.y, ta.k)
+        saberR.update(dt, tb.x, tb.y, tb.k)
       } else if (XR.active && XR.useHands) {
         saberL.updateFromHand(dt, XR.handL)
         saberR.updateFromHand(dt, XR.handR)
