@@ -1436,6 +1436,17 @@ export function useGame() {
       // Noodle track animations advance before objects read them
       processNoodle(t)
 
+      // Player-track camera offset (modchart flythrough): shared by the camera
+      // and the saber visuals so the blades never fall out of frame
+      G.camOff = null
+      if (!XR.active && G.playerTrack) {
+        const ptr = G.noodleTracks[G.playerTrack]
+        const pp = ptr?.val?.position
+        if (pp && (pp[0] || pp[1] || pp[2])) {
+          G.camOff = { x: (pp[0] || 0) * 0.6, y: (pp[1] || 0) * 0.5, z: -(pp[2] || 0) * 0.6 }
+        }
+      }
+
       // Demo mode is a showcase — official autoplay never misses. The swing
       // choreography does the visuals; this guarantees the cut lands at any
       // frame rate. Runs BEFORE the move loop so a low-fps frame jump cannot
@@ -1520,8 +1531,8 @@ export function useGame() {
       // Sabers
       if (auto.value) {
         const ta = autoAim(saberL, t), tb = autoAim(saberR, t)
-        saberL.update(dt, ta.x, ta.y, ta.k)
-        saberR.update(dt, tb.x, tb.y, tb.k)
+        saberL.update(dt, ta.x, ta.y, ta.k, G.camOff)
+        saberR.update(dt, tb.x, tb.y, tb.k, G.camOff)
       } else if (XR.active && XR.useHands) {
         saberL.updateFromHand(dt, XR.handL)
         saberR.updateFromHand(dt, XR.handR)
@@ -1550,15 +1561,15 @@ export function useGame() {
             // hand motion covers the outer lanes)
             const HX = (n: number) => THREE.MathUtils.clamp((n - 0.5) * 6.5, -2.6, 2.6)
             const HY = (n: number) => THREE.MathUtils.clamp((1 - n) * 3.4 + 0.05, 0.15, 2.9)
-            saberL.update(dt, HX(H.left.x), HY(H.left.y))
-            saberR.update(dt, HX(H.right.x), HY(H.right.y))
+            saberL.update(dt, HX(H.left.x), HY(H.left.y), 28, G.camOff)
+            saberR.update(dt, HX(H.right.x), HY(H.right.y), 28, G.camOff)
             byHand = true
           }
         }
         if (!byHand) {
           const mp = mouseToWorld()
-          saberR.update(dt, mp.x, mp.y)
-          saberL.update(dt, -mp.x, mp.y)
+          saberR.update(dt, mp.x, mp.y, 28, G.camOff)
+          saberL.update(dt, -mp.x, mp.y, 28, G.camOff)
         }
       }
 
@@ -1583,21 +1594,18 @@ export function useGame() {
         camera.position.z = 0
         camera.rotation.x = 0
         camera.rotation.y = 0
+        if (G.camOff) {
+          camera.position.x += G.camOff.x
+          camera.position.y += G.camOff.y
+          camera.position.z += G.camOff.z
+        }
         if (G.playerTrack) {
           const tr = G.noodleTracks[G.playerTrack]
-          if (tr) {
-            const p = tr.val.position
-            if (p) {
-              camera.position.x += (p[0] || 0) * 0.6
-              camera.position.y += (p[1] || 0) * 0.5
-              camera.position.z -= (p[2] || 0) * 0.6
-            }
-            const r = tr.val.rotation || tr.val.localRotation
-            if (r) {
-              camera.rotation.x = (r[0] || 0) * (Math.PI / 180)
-              camera.rotation.y = -(r[1] || 0) * (Math.PI / 180)
-              camera.rotation.z += (r[2] || 0) * (Math.PI / 180)
-            }
+          const r = tr?.val?.rotation || tr?.val?.localRotation
+          if (r) {
+            camera.rotation.x = (r[0] || 0) * (Math.PI / 180)
+            camera.rotation.y = -(r[1] || 0) * (Math.PI / 180)
+            camera.rotation.z += (r[2] || 0) * (Math.PI / 180)
           }
         }
         if (G.shake > 0.001) {

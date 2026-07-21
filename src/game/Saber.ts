@@ -172,7 +172,7 @@ export class Saber {
     }
   }
 
-  update(dt, tx, ty, kv = 28) {
+  update(dt, tx, ty, kv = 28, off = null) {
     this.prev.copy(this.pos)
     const k = 1 - Math.exp(-dt * kv)
     this.pos.x += (tx - this.pos.x) * k
@@ -180,6 +180,9 @@ export class Saber {
     this.vel.set((this.pos.x - this.prev.x) / dt, (this.pos.y - this.prev.y) / dt, 0)
     this.speed = this.vel.length()
     this.group.position.copy(this.pos)
+    // Player-track camera offset: visuals (blade + trail) ride along with the
+    // flying camera; judgment coords (this.pos) stay in gameplay space
+    if (off) { this.group.position.x += off.x; this.group.position.y += off.y; this.group.position.z += off.z }
     const trx = -0.45 + THREE.MathUtils.clamp(this.vel.y * 0.035, -0.45, 0.45)
     const trz = THREE.MathUtils.clamp(-this.vel.x * 0.04, -0.6, 0.6)
     const rk = 1 - Math.exp(-dt * 14)
