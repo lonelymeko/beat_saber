@@ -211,6 +211,105 @@ export async function loadBuiltinMap(id: string, url: string, onProgress?: (stag
   return song
 }
 
+// ===== v4 format (game 1.34+, official editor output) =====
+
+/** Normalize a v4 Info.dat into the v2 shape the rest of the pipeline reads. */
+function normalizeInfoV4(info: any): any {
+  if (!String(info.version || '').startsWith('4')) return info
+  const beatmaps = info.difficultyBeatmaps || []
+  const std = beatmaps.filter((b: any) => (b.characteristic || 'Standard') === 'Standard')
+  const chosen = std.length ? std : beatmaps
+  return {
+    _songName: info.song?.title,
+    _songAuthorName: info.song?.author,
+    _beatsPerMinute: info.audio?.bpm,
+    _songFilename: info.audio?.songFilename,
+    _environmentName: (info.environmentNames || [])[0],
+    _audioDataFilename: info.audio?.audioDataFilename,
+    _colorSchemesV4: info.colorSchemes || [],
+    _difficultyBeatmapSets: [{
+      _beatmapCharacteristicName: 'Standard',
+      _difficultyBeatmaps: chosen.map((b: any) => ({
+        _difficulty: b.difficulty,
+        _beatmapFilename: b.beatmapDataFilename,
+        _lightshowFilename: b.lightshowDataFilename,
+        _beatmapColorSchemeIdx: b.beatmapColorSchemeIdx,
+      })),
+    }],
+  }
+}
+
+/** v4 charts store objects as {beat, index} pairs into *Data tables; dereference
+ *  everything into the v3 shape parseChart already understands. Lighting lives
+ *  in a separate lightshow file merged here. */
+function v4ChartToV3(chart: any, lightshow: any): any {
+  const deref = (list: any[], data: any[]) =>
+    (list || []).map((e: any) => ({ ...(data?.[e.i || 0] || {}), b: e.b }))
+  const out: any = {
+    version: '3.3.0',
+    colorNotes: deref(chart.colorNotes, chart.colorNotesData),
+    bombNotes: deref(chart.bombNotes, chart.bombNotesData),
+    obstacles: deref(chart.obstacles, chart.obstaclesData),
+    sliders: (chart.arcs || []).map((a: any) => {
+      const h = chart.colorNotesData?.[a.hi || 0] || {}
+      const t = chart.colorNotesData?.[a.ti || 0] || {}
+      const d = chart.arcsData?.[a.ai || 0] || {}
+      return { b: a.hb, c: h.c, x: h.x, y: h.y, d: h.d, mu: d.m ?? 1, tb: a.tb, tx: t.x, ty: t.y, tc: t.d, tmu: d.tm ?? 1 }
+    }),
+    burstSliders: (chart.chains || []).map((c: any) => {
+      const h = chart.colorNotesData?.[c.i || 0] || {}
+      const d = chart.chainsData?.[c.ci || 0] || {}
+      return { b: c.hb, x: h.x, y: h.y, c: h.c, d: h.d, tb: c.tb, tx: d.tx, ty: d.ty, sc: d.c ?? 3, s: d.s ?? 1 }
+    }),
+    basicBeatmapEvents: (lightshow?.basicEvents || []).map((e: any) => {
+      const d = lightshow.basicEventsData?.[e.i || 0] || {}
+      return { b: e.b, et: d.t, i: d.i, f: d.f ?? 1 }
+    }),
+    colorBoostBeatmapEvents: (lightshow?.colorBoostEvents || []).map((e: any) => {
+      const d = lightshow.colorBoostEventsData?.[e.i || 0] || {}
+      return { b: e.b, o: !!d.b }
+    }),
+  }
+  return out
+}
+
+// ===== BPM timeline (variable-tempo maps) =====
+type BeatToSec = (beat: number) => number
+
+/** Build a beat→seconds converter. Priority: v4 AudioData bpm regions
+ *  (sample-accurate) > v3 bpmEvents (piecewise tempo) > constant BPM. */
+function makeB2S(bpm: number, v3BpmEvents?: any[], v4AudioData?: any): BeatToSec {
+  const spb = 60 / bpm
+  const ad = v4AudioData
+  if (ad?.bpmData?.length && ad.songFrequency) {
+    const regs = [...ad.bpmData]
+      .map((r: any) => ({ sb: r.sb, eb: r.eb, ss: r.si / ad.songFrequency, es: r.ei / ad.songFrequency }))
+      .sort((a, b) => a.sb - b.sb)
+    return (beat: number) => {
+      let r = regs[regs.length - 1]
+      for (const g of regs) { if (beat <= g.eb) { r = g; break } }
+      const k = (beat - r.sb) / Math.max(1e-9, r.eb - r.sb)
+      return r.ss + k * (r.es - r.ss)
+    }
+  }
+  const ev = (v3BpmEvents || []).filter((e: any) => e.m > 0).sort((a: any, b: any) => a.b - b.b)
+  if (ev.length) {
+    const segs: { b: number, sec: number, spb: number }[] = [{ b: 0, sec: 0, spb }]
+    let curB = 0, curSec = 0, curSpb = spb
+    for (const e of ev) {
+      if (e.b > curB) { curSec += (e.b - curB) * curSpb; curB = e.b }
+      curSpb = 60 / e.m
+      segs.push({ b: curB, sec: curSec, spb: curSpb })
+    }
+    return (beat: number) => {
+      let s = segs[0]
+      for (const g of segs) { if (g.b <= beat) s = g; else break }
+      return s.sec + (beat - s.b) * s.spb
+    }
+  }
+  return (beat: number) => beat * spb
+}
+
 // Manual ZIP parser with async inflate support
 async function parseZipManually(data: Uint8Array, mapData: any, coverBlob?: Blob | null): Promise<Song> {
   const decoder = new TextDecoder('utf-8')
@@ -248,13 +347,23 @@ async function parseZipManually(data: Uint8Array, mapData: any, coverBlob?: Blob
     }
   }
   if (!info) throw new Error('找不到 Info.dat')
+  info = normalizeInfoV4(info)
 
+  // Prefer the audio file Info.dat names (v4 zips also bundle a short preview
+  // clip — picking that would end the level early), fall back to first match
+  const wantAudio = String(info._songFilename || '').toLowerCase()
   let audioBuffer = null
   for (const name of Object.keys(files)) {
     const lower = name.toLowerCase()
-    if (lower.endsWith('.ogg') || lower.endsWith('.egg') || lower.endsWith('.mp3') || lower.endsWith('.wav')) {
-      audioBuffer = files[name]
-      break
+    if (wantAudio && (lower === wantAudio || lower.endsWith('/' + wantAudio))) { audioBuffer = files[name]; break }
+  }
+  if (!audioBuffer) {
+    for (const name of Object.keys(files)) {
+      const lower = name.toLowerCase()
+      if (lower.endsWith('.ogg') || lower.endsWith('.egg') || lower.endsWith('.mp3') || lower.endsWith('.wav')) {
+        audioBuffer = files[name]
+        break
+      }
     }
   }
   if (!audioBuffer) throw new Error('找不到音频文件')
@@ -284,6 +393,10 @@ async function parseZipManually(data: Uint8Array, mapData: any, coverBlob?: Blob
   let bpm = mapData.bpm || 120
   if (info._beatsPerMinute) bpm = info._beatsPerMinute
   const spb = 60 / bpm
+  // v4 AudioData (sample-accurate bpm regions) drives variable-tempo timing
+  const audioData = info._audioDataFilename
+    ? fileCharts[String(info._audioDataFilename).toLowerCase()]
+    : null
 
   // Enumerate difficulties from Info.dat (authoritative filename→difficulty mapping),
   // preferring the Standard characteristic so Lawless/OneSaber sets don't collide
@@ -291,21 +404,30 @@ async function parseZipManually(data: Uint8Array, mapData: any, coverBlob?: Blob
   const diffs: Record<string, any> = {}
   const sets = info._difficultyBeatmapSets || []
   const chosenSet = sets.find((s: any) => s._beatmapCharacteristicName === 'Standard') || sets[0]
+  const prepChart = (json: any, lightshowName?: string) => {
+    if (String(json?.version || '').startsWith('4')) {
+      const ls = lightshowName ? fileCharts[String(lightshowName).toLowerCase()] : fileCharts['lightshow.dat']
+      json = v4ChartToV3(json, ls)
+    }
+    const b2s = makeB2S(bpm, json.bpmEvents, audioData)
+    return parseChart(json, spb, b2s)
+  }
   if (chosenSet) {
     for (const db of chosenSet._difficultyBeatmaps || []) {
       const json = fileCharts[String(db._beatmapFilename || '').toLowerCase()]
       const key = String(db._difficulty || '').toLowerCase()
       if (!json || !key) continue
-      diffs[key] = parseChart(json, spb)
+      diffs[key] = prepChart(json, db._lightshowFilename)
       diffs[key].label = diffLabels[key] || db._difficulty
     }
   }
   if (!Object.keys(diffs).length) {
     // Fallback: filename heuristic for zips with broken Info sets
     for (const [fname, json] of Object.entries(fileCharts)) {
-      let key = fname.replace(/\.dat$/, '').replace(/(standard|lawless|onesaber|360degree|90degree|noarrows|lightshow)$/, '')
+      if (fname === 'audiodata.dat' || fname.includes('lightshow')) continue
+      let key = fname.replace(/\.dat$/, '').replace(/\.beatmap$/, '').replace(/(standard|lawless|onesaber|360degree|90degree|noarrows|lightshow)$/, '')
       key = ({ 'expert+': 'expertplus' } as any)[key] || key || 'hard'
-      diffs[key] = parseChart(json, spb)
+      diffs[key] = prepChart(json as any, fname.replace('beatmap', 'lightshow'))
       diffs[key].label = diffLabels[key] || key.toUpperCase()
     }
   }
@@ -395,7 +517,7 @@ function pickNoodleProps(d: any, pd: Record<string, any>) {
   return props
 }
 
-function parseNoodle(chart: any, spb: number) {
+function parseNoodle(chart: any, spb: number, b2s: BeatToSec = (b) => b * spb) {
   const cd = chart._customData || {}
   const pd: Record<string, any> = {}
   for (const def of cd._pointDefinitions || []) {
@@ -406,12 +528,12 @@ function parseNoodle(chart: any, spb: number) {
   for (const e of cd._customEvents || []) {
     const dd = e._data || {}
     if (e._type === 'AssignPlayerToTrack') {
-      if (dd._track) events.push({ t: (e._time || 0) * spb, player: dd._track })
+      if (dd._track) events.push({ t: b2s(e._time || 0), player: dd._track })
       continue
     }
     if (e._type === 'AssignTrackParent') {
       const children = (Array.isArray(dd._childrenTracks) ? dd._childrenTracks : [dd._childrenTracks]).filter(Boolean)
-      if (dd._parentTrack && children.length) events.push({ t: (e._time || 0) * spb, parent: dd._parentTrack, children })
+      if (dd._parentTrack && children.length) events.push({ t: b2s(e._time || 0), parent: dd._parentTrack, children })
       continue
     }
     if (e._type !== 'AnimateTrack' && e._type !== 'AssignPathAnimation') { skipped++; continue }
@@ -421,10 +543,10 @@ function parseNoodle(chart: any, spb: number) {
     const props = pickNoodleProps(d, pd)
     if (!Object.keys(props).length) continue
     events.push({
-      t: (e._time || 0) * spb,
+      t: b2s(e._time || 0),
       path: e._type === 'AssignPathAnimation',
       tracks,
-      dur: (d._duration || 0) * spb,
+      dur: b2s((e._time || 0) + (d._duration || 0)) - b2s(e._time || 0),
       easing: d._easing,
       props,
     })
@@ -435,9 +557,9 @@ function parseNoodle(chart: any, spb: number) {
 }
 
 /** Parse one difficulty chart (v2 or v3) into playable data. Times converted to seconds. */
-function parseChart(chart: any, spb: number) {
+function parseChart(chart: any, spb: number, b2s: BeatToSec = (b) => b * spb) {
   const notes: NoteData[] = [], walls: any[] = [], arcs: ArcData[] = []
-  const noodle = chart._notes ? parseNoodle(chart, spb) : null
+  const noodle = chart._notes ? parseNoodle(chart, spb, b2s) : null
   if (chart.colorNotes || chart.bombNotes) {
     // v3 format
     for (const n of chart.colorNotes || []) {
@@ -584,15 +706,15 @@ function parseChart(chart: any, spb: number) {
     walls.push(...gameplay, ...sampled)
     walls.sort((a, b) => a.t - b.t)
   }
-  for (const n of notes) n.t = n.t * spb
-  for (const w of walls) w.t = w.t * spb
-  for (const a of arcs) { a.t = a.t * spb; a.tb = a.tb * spb }
+  for (const n of notes) n.t = b2s(n.t)
+  for (const w of walls) w.t = b2s(w.t)
+  for (const a of arcs) { a.t = b2s(a.t); a.tb = b2s(a.tb) }
   notes.sort((a, b) => a.t - b.t)
   // Wall-art generators emit walls grouped by pixel/column, not by time — the
   // spawn loop requires time order, so always sort (not only when sampling)
   walls.sort((a, b) => a.t - b.t)
   arcs.sort((a, b) => a.t - b.t)
-  const lights = parseLightEvents(chart, spb)
+  const lights = parseLightEvents(chart, spb, b2s)
   const noodleEvents = noodle?.events?.length ? noodle.events : undefined
   if (noodleEvents) console.log('[NOODLE]', noodleEvents.length, 'track animation events')
   return { notes, walls, arcs, lights, noodle: noodleEvents, label: '' }
@@ -666,38 +788,38 @@ function customColorsFor(info: any, chosenName: string | null) {
 // Values: 0=off; 1-4=right(blue) on/flash/fade/transition; 5-8=left(red); 9-12=white
 const LIGHT_TYPES = new Set([0, 1, 2, 3, 4, 5, 8, 9, 12, 13])
 
-function parseLightEvents(diff: any, spb: number): LightEvent[] {
+function parseLightEvents(diff: any, spb: number, b2s: BeatToSec = (b) => b * spb): LightEvent[] {
   let evs: LightEvent[] = []
   if (Array.isArray(diff._events) && diff._events.length) {
     // v2
     for (const e of diff._events) {
       if (!LIGHT_TYPES.has(e._type)) continue
-      evs.push({ t: e._time * spb, type: e._type, value: e._value | 0, f: e._floatValue ?? 1, c: chromaHex(e._customData?._color) })
+      evs.push({ t: b2s(e._time || 0), type: e._type, value: e._value | 0, f: e._floatValue ?? 1, c: chromaHex(e._customData?._color) })
     }
   } else {
     // v3
     if (Array.isArray(diff.basicBeatmapEvents)) {
       for (const e of diff.basicBeatmapEvents) {
         if (!LIGHT_TYPES.has(e.et)) continue
-        evs.push({ t: (e.b || 0) * spb, type: e.et, value: e.i | 0, f: e.f ?? 1, c: chromaHex(e.customData?.color) })
+        evs.push({ t: b2s(e.b || 0), type: e.et, value: e.i | 0, f: e.f ?? 1, c: chromaHex(e.customData?.color) })
       }
     }
     if (Array.isArray(diff.colorBoostBeatmapEvents)) {
       for (const e of diff.colorBoostBeatmapEvents) {
-        evs.push({ t: (e.b || 0) * spb, type: 5, value: e.o ? 1 : 0, f: 1 })
+        evs.push({ t: b2s(e.b || 0), type: 5, value: e.o ? 1 : 0, f: 1 })
       }
     }
     // Newer v3 maps only carry group lighting — flatten to approximate basic events
     const lit = evs.filter(e => e.type <= 4)
     if (lit.length < 8 && Array.isArray(diff.lightColorEventBoxGroups) && diff.lightColorEventBoxGroups.length) {
-      evs = evs.concat(flattenLightGroups(diff, spb))
+      evs = evs.concat(flattenLightGroups(diff, b2s))
     }
   }
   evs.sort((a, b) => a.t - b.t)
   return evs
 }
 
-function flattenLightGroups(diff: any, spb: number): LightEvent[] {
+function flattenLightGroups(diff: any, b2s: BeatToSec): LightEvent[] {
   const out: LightEvent[] = []
   const groups = diff.lightColorEventBoxGroups
   const ids = [...new Set<number>(groups.map((g: any) => g.g))].sort((a, b) => a - b)
@@ -714,14 +836,14 @@ function flattenLightGroups(diff: any, spb: number): LightEvent[] {
           : l.c === 0 ? (strobe ? 6 : 5)
           : l.c === 2 ? (strobe ? 10 : 9)
           : (strobe ? 2 : 1)
-        out.push({ t: ((g.b || 0) + (l.b || 0)) * spb, type, value, f: Math.min(1.5, s) })
+        out.push({ t: b2s((g.b || 0) + (l.b || 0)), type, value, f: Math.min(1.5, s) })
       }
     }
   }
   // Ring spins from rotation groups (throttled)
   if (Array.isArray(diff.lightRotationEventBoxGroups)) {
     let lastSpin = -10
-    const times = diff.lightRotationEventBoxGroups.map(g => (g.b || 0) * spb).sort((a, b) => a - b)
+    const times = diff.lightRotationEventBoxGroups.map(g => b2s(g.b || 0)).sort((a, b) => a - b)
     for (const t of times) {
       if (t - lastSpin < 0.4) continue
       lastSpin = t

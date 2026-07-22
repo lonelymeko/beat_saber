@@ -51,13 +51,25 @@ modchart / 观赏谱生态的主体格式,支持最深。
 
 注:v3 命名的 Noodle 字段(`coordinates` / `track` / `animation`)暂未覆盖——现存 modchart 绝大多数使用 v2 格式。
 
+## v4 谱面(1.34+ 官方编辑器格式)
+
+- **Info.dat v4**:song/audio 结构、`environmentNames`、每难度 `beatmapDataFilename` + `lightshowDataFilename`(归一化到 v2 形态后走统一管线)
+- **索引化谱面**:colorNotes/bombNotes/obstacles/chains/arcs 的 `{beat, index}` + 数据表全部解引用(链条/弧线引用头尾音符数据)
+- **独立 lightshow 文件**:basicEvents(+Data)、colorBoostEvents 合并进灯光管线
+- **AudioData.dat**:`bpmData` 采样级 BPM 区段 → 变速谱时间轴精确换算
+- 音频文件按 Info 指定名优先(避免误选 v4 包内的预览片段)
+
+## BPM 变更(变速谱)
+
+拍号→秒的分段换算,优先级:v4 AudioData 区段(采样精确)> v3 `bpmEvents`(分段速度)> 恒定 BPM。音符/墙体/滑条/灯光/Noodle 事件时间全部走同一换算。v2 `_BPMChanges`(远古约定,现存极少)未实现。
+
 ## 明确不支持(诚实边界)
 
 | 缺口 | 影响 | 状态 |
 |---|---|---|
-| **v4 格式**(1.34+ 索引化结构) | 新谱占比在涨,解析不完整 | 规划中 |
-| **BPM 变更**(v2 `_BPMChanges` / v3 `bpmEvents`) | 变速谱时间轴漂移 | 规划中 |
 | 90° / 360° 旋转谱(`rotationEvents`) | 该类谱不可玩 | 待评估 |
+| v4 组灯(`eventBoxGroups`) | 抽样 v4 谱全部用 basicEvents,暂无实例 | 低优先 |
 | ME 精确格编码(lineIndex 1000+) | 极少数纯 ME 谱错位 | 低优先 |
+| v2 `_BPMChanges` | 远古变速约定,现存极少 | 低优先 |
 | `AssignFogTrack`、`_dissolveArrow` 单独箭头溶解 | 个别视觉细节缺失 | 低优先 |
 | **Vivify**(Unity 资产包) | 网页原理性无法加载 | 无解(以主题环境近似,如 Reply 神社) |

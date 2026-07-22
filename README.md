@@ -39,7 +39,7 @@
 - **WebXR VR**:双手柄 6DoF 光剑、按官方分级的手柄震动(正切/错切/炸弹)、桌面同款双面板选歌界面(摇杆滚动 + 激光逐像素点选)、VR 内搜索/下载/QWERTY 键盘、画质/帧率(30/60/90/无限)/原画墙就地设置
 
 ### 谱面兼容
-- **格式**:v2 / v3 谱面,多难度解析与切换(Info.dat 权威映射),滑条(arcs)、链条(chains)、炸弹、墙体
+- **格式**:v2 / v3 / **v4**(1.34+ 官方编辑器格式:索引化谱面、独立 lightshow 文件、AudioData)谱面,多难度解析与切换(Info.dat 权威映射),滑条(arcs)、链条(chains)、炸弹、墙体;**BPM 变更**(v4 AudioData 采样级区段 / v3 bpmEvents)
 - **Chroma**:逐事件/逐物件自定义颜色、SongCore customColors、官方 Info.dat v2.1 colorSchemes(方块与灯光分别取色)
 - **Noodle Extensions**(深度子集):pointDefinitions 关键帧库、AnimateTrack、AssignPathAnimation、逐物件 `_animation`、18 种缓动、`_dissolve` 溶解、`_interactable` 幽灵音符、`_definitePosition` 绝对路径、精确坐标音符/墙体、静态 `_rotation`/`_localRotation` 旋转墙、**AssignTrackParent 轨道父子链**、**AssignPlayerToTrack 镜头飞行**(桌面端,光剑视觉随镜头)
 - **观赏谱(wall-art)**:墙体全量渲染按画质分档(桌面高画质不限量;VR 低 2000/中 6000/高 2 万 + "原画墙"开关解除限制),共享几何体优化高频刷墙
@@ -95,9 +95,10 @@
 
 | 事项 | 说明 | 状态 |
 |---|---|---|
-| v4 谱面格式 | 1.34+ 索引化新格式,新谱占比在涨,当前解析不完整 | 规划中 |
-| BPM 变更 | v2 `_BPMChanges` / v3 `bpmEvents`,变速谱时间轴会漂移 | 规划中 |
+| ~~v4 谱面格式~~ | 索引化谱面/lightshow/AudioData 已支持 | ✅ 已支持 |
+| ~~BPM 变更~~ | v4 AudioData 区段 + v3 bpmEvents 已支持(v2 `_BPMChanges` 极少见,未做) | ✅ 已支持 |
 | 90°/360° 旋转谱 | `rotationEvents` 未实现 | 待评估 |
+| v4 组灯(eventBoxGroups) | 抽样的 v4 谱全部使用 basicEvents,组灯暂无实例 | 低优先 |
 | v3 命名的 Noodle 字段 | `coordinates`/`track`/`animation`(现存 modchart 绝大多数为 v2) | 低优先 |
 | Vivify(Unity 资产包) | 网页原理性无法加载,以主题环境近似(如 Reply 神社) | 无解 |
 | VR 实机截图 | Quest 实拍 | 待补充 |
