@@ -44,6 +44,8 @@
 - **Noodle Extensions**(深度子集):pointDefinitions 关键帧库、AnimateTrack、AssignPathAnimation、逐物件 `_animation`、18 种缓动、`_dissolve` 溶解、`_interactable` 幽灵音符、`_definitePosition` 绝对路径、精确坐标音符/墙体、静态 `_rotation`/`_localRotation` 旋转墙、**AssignTrackParent 轨道父子链**、**AssignPlayerToTrack 镜头飞行**(桌面端,光剑视觉随镜头)
 - **观赏谱(wall-art)**:墙体全量渲染按画质分档(桌面高画质不限量;VR 低 2000/中 6000/高 2 万 + "原画墙"开关解除限制),共享几何体优化高频刷墙
 
+> 逐字段的完整格式支持明细(含包结构 / v2 / v3 / 配色优先级)见 **[docs/format-support.md](docs/format-support.md)**。
+
 ### 官方观感还原(参考 [beatsaver-viewer](https://github.com/supermedium/beatsaver-viewer),MIT)
 - **舞台 1:1 移植**:官方跑道双模型 + atlas 遮罩着色器(UV 分区染色/假径向雾)、3+3 旋转侧激光、烟雾环、法线贴图反光地板;灯光事件全通道对位(背景辉光/隧道霓虹/左右激光/地板/激光转速),on/flash/fade 三态动画,无灯光数据的谱有节拍兜底灯光秀
 - **方块**:官方 beat.obj 倒角模型 + atlas 箭头/圆点精灵 + 录音棚环境反射,官方材质配方;**切割方向 = 整块旋转**(斜向呈菱形姿态);切割为官方式两半分离 + 白热切面
@@ -88,6 +90,17 @@
 | 墨影山河 INK SHADOWS | 84 | 国风古筝 |
 | 星海远航 STARBOUND | 110 | Synthwave |
 | Reply(内置社区谱) | 170 | 神社主题 · Expert+ |
+
+## 已知缺口与规划
+
+| 事项 | 说明 | 状态 |
+|---|---|---|
+| v4 谱面格式 | 1.34+ 索引化新格式,新谱占比在涨,当前解析不完整 | 规划中 |
+| BPM 变更 | v2 `_BPMChanges` / v3 `bpmEvents`,变速谱时间轴会漂移 | 规划中 |
+| 90°/360° 旋转谱 | `rotationEvents` 未实现 | 待评估 |
+| v3 命名的 Noodle 字段 | `coordinates`/`track`/`animation`(现存 modchart 绝大多数为 v2) | 低优先 |
+| Vivify(Unity 资产包) | 网页原理性无法加载,以主题环境近似(如 Reply 神社) | 无解 |
+| VR 实机截图 | Quest 实拍 | 待补充 |
 
 ## 本地开发
 
